@@ -1,4 +1,5 @@
 import './globals.css';
+import Script from 'next/script';
 
 export const metadata = {
   title: 'Quantum Stock Terminal',
@@ -12,9 +13,11 @@ export default function RootLayout({ children }) {
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-        <script src="https://cdn.plot.ly/plotly-2.30.0.min.js" defer />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Script src="https://cdn.plot.ly/plotly-2.30.0.min.js" strategy="afterInteractive" />
+      </body>
     </html>
   );
 }

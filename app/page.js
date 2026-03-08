@@ -6,14 +6,27 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 //  QUANTUM STOCK TERMINAL — Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function toHA(bars) {
+// Convert UTC timestamp to a target timezone by computing the offset
+function toTzEpoch(isoStr, tz) {
+  const d = new Date(isoStr);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  const p = {};
+  fmt.formatToParts(d).forEach(x => { p[x.type] = x.value; });
+  const tzAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, p.hour === '24' ? 0 : +p.hour, +p.minute, +p.second);
+  return Math.floor(tzAsUtc / 1000);
+}
+
+function toHA(bars, tz) {
   if (!bars?.length) return [];
   const ha = [];
   for (let i = 0; i < bars.length; i++) {
     const { o, h, l, c, t } = bars[i];
     const hc = (o + h + l + c) / 4;
     const ho = i === 0 ? (o + c) / 2 : (ha[i - 1].open + ha[i - 1].close) / 2;
-    ha.push({ time: Math.floor(new Date(t).getTime() / 1000), open: +ho.toFixed(4), high: +Math.max(h, ho, hc).toFixed(4), low: +Math.min(l, ho, hc).toFixed(4), close: +hc.toFixed(4) });
+    ha.push({ time: toTzEpoch(t, tz), open: +ho.toFixed(4), high: +Math.max(h, ho, hc).toFixed(4), low: +Math.min(l, ho, hc).toFixed(4), close: +hc.toFixed(4) });
   }
   return ha;
 }
@@ -55,6 +68,8 @@ export default function Dashboard() {
   const [sr, setSR] = useState([]);
   const [dd, setDD] = useState(false);
   const [tf, setTf] = useState('1Min');
+  const [chartType, setChartType] = useState('heikin');
+  const [tz, setTz] = useState('America/New_York');
 
   const [stock, setStock] = useState(null);
   const [earn, setEarn] = useState(null);
@@ -121,12 +136,18 @@ export default function Dashboard() {
   // ── TradingView Lightweight Chart ──────────────────────────────────────────
   useEffect(() => {
     if (!stock?.bars?.length || !cRef.current) return;
-    const build = async () => {
-      const LWC = await import('lightweight-charts');
-      if (cInst.current) { cInst.current.remove(); cInst.current = null; }
+    let cancelled = false;
+    let ro;
 
-      const chart = LWC.createChart(cRef.current, {
-        width: cRef.current.clientWidth, height: 500,
+    (async () => {
+      const LWC = await import('lightweight-charts');
+      if (cancelled || !cRef.current) return;
+
+      if (cInst.current) { try { cInst.current.remove(); } catch {} cInst.current = null; }
+
+      const el = cRef.current;
+      const chart = LWC.createChart(el, {
+        width: el.clientWidth, height: 500,
         layout: { background: { color: '#111117' }, textColor: '#555568', fontFamily: "'Geist Mono',monospace", fontSize: 10 },
         grid: { vertLines: { color: 'rgba(56,56,78,0.2)' }, horzLines: { color: 'rgba(56,56,78,0.2)' } },
         crosshair: { vertLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' }, horzLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' } },
@@ -135,17 +156,32 @@ export default function Dashboard() {
       });
       cInst.current = chart;
 
-      const candles = chart.addCandlestickSeries({
-        upColor: '#00f59b', downColor: '#ff3355', borderUpColor: '#00f59b', borderDownColor: '#ff3355', wickUpColor: '#00f59b', wickDownColor: '#ff3355',
-      });
-      candles.setData(toHA(stock.bars));
+      const times = stock.bars.map(b => toTzEpoch(b.t, tz));
+      const closes = stock.bars.map(b => b.c);
+      const ohlcData = stock.bars.map((b, i) => ({ time: times[i], open: b.o, high: b.h, low: b.l, close: b.c }));
+      const closeData = stock.bars.map((b, i) => ({ time: times[i], value: b.c }));
+
+      if (chartType === 'line') {
+        const s = chart.addLineSeries({ color: '#00d4ff', lineWidth: 2, crosshairMarkerVisible: true, crosshairMarkerRadius: 4 });
+        s.setData(closeData);
+      } else if (chartType === 'area') {
+        const s = chart.addAreaSeries({ topColor: 'rgba(0,212,255,0.4)', bottomColor: 'rgba(0,212,255,0.02)', lineColor: '#00d4ff', lineWidth: 2 });
+        s.setData(closeData);
+      } else if (chartType === 'bar') {
+        const s = chart.addBarSeries({ upColor: '#00f59b', downColor: '#ff3355' });
+        s.setData(ohlcData);
+      } else if (chartType === 'candle') {
+        const s = chart.addCandlestickSeries({ upColor: '#00f59b', downColor: '#ff3355', borderUpColor: '#00f59b', borderDownColor: '#ff3355', wickUpColor: '#00f59b', wickDownColor: '#ff3355' });
+        s.setData(ohlcData);
+      } else {
+        const s = chart.addCandlestickSeries({ upColor: '#00f59b', downColor: '#ff3355', borderUpColor: '#00f59b', borderDownColor: '#ff3355', wickUpColor: '#00f59b', wickDownColor: '#ff3355' });
+        s.setData(toHA(stock.bars, tz));
+      }
 
       const vol = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
       chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-      vol.setData(stock.bars.map(b => ({ time: Math.floor(new Date(b.t).getTime() / 1000), value: b.v, color: b.c >= b.o ? 'rgba(0,245,155,0.15)' : 'rgba(255,51,85,0.15)' })));
+      vol.setData(stock.bars.map(b => ({ time: toTzEpoch(b.t, tz), value: b.v, color: b.c >= b.o ? 'rgba(0,245,155,0.15)' : 'rgba(255,51,85,0.15)' })));
 
-      const closes = stock.bars.map(b => b.c);
-      const times = stock.bars.map(b => Math.floor(new Date(b.t).getTime() / 1000));
       const addEma = (p, col, w) => {
         const vals = calcEMA(closes, p);
         const s = chart.addLineSeries({ color: col, lineWidth: w, crosshairMarkerVisible: false });
@@ -154,12 +190,16 @@ export default function Dashboard() {
       addEma(8, '#00d4ff', 1); addEma(21, '#ff8833', 1); addEma(55, '#9955ff', 2);
       chart.timeScale().fitContent();
 
-      const ro = new ResizeObserver(() => { if (cRef.current) chart.applyOptions({ width: cRef.current.clientWidth }); });
-      ro.observe(cRef.current);
-      return () => ro.disconnect();
+      ro = new ResizeObserver(() => { if (el) chart.applyOptions({ width: el.clientWidth }); });
+      ro.observe(el);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (ro) ro.disconnect();
+      if (cInst.current) { try { cInst.current.remove(); } catch {} cInst.current = null; }
     };
-    build();
-  }, [stock]);
+  }, [stock, chartType, tz]);
 
   // ── Plotly: IV Surface ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -170,9 +210,29 @@ export default function Dashboard() {
     const dtes = [...new Set(calls.map(d => d.dte))].sort((a, b) => a - b);
     const lk = {}; calls.forEach(d => { lk[`${d.strike}-${d.dte}`] = d.iv; });
     const z = dtes.map(dte => strikes.map(k => lk[`${k}-${dte}`] ?? null));
-    window.Plotly.newPlot(ivRef.current, [{ type: 'surface', x: strikes, y: dtes, z, colorscale: [[0,'#050520'],[0.15,'#0a0a4a'],[0.35,'#2244aa'],[0.55,'#4488dd'],[0.75,'#66ccff'],[1,'#bbffff']], contours: { z: { show: true, usecolormap: true, highlightcolor: '#00d4ff', project: { z: true } } }, hovertemplate: 'Strike: $%{x:.0f}<br>DTE: %{y}d<br>IV: %{z:.1f}%<extra></extra>', lighting: { ambient: 0.5, diffuse: 0.6, specular: 0.3, roughness: 0.8 } }], {
-      scene: { xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, zaxis: { title: { text: 'IV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, bgcolor: '#111117', camera: { eye: { x: 1.5, y: -1.8, z: 0.7 } } },
-      paper_bgcolor: '#111117', plot_bgcolor: '#111117', font: { color: '#555568', family: 'Geist Mono', size: 9 }, margin: { l: 0, r: 0, t: 36, b: 0 }, title: { text: `${sym} Implied Volatility Surface (Calls)`, font: { size: 12, color: '#a0a0b4' } },
+    window.Plotly.newPlot(ivRef.current, [{
+      type: 'surface', x: strikes, y: dtes, z,
+      colorscale: [[0,'#050520'],[0.1,'#0a0a4a'],[0.25,'#1a3388'],[0.4,'#2255bb'],[0.55,'#3388dd'],[0.7,'#55aaee'],[0.85,'#88ccff'],[1,'#cceeFF']],
+      contours: {
+        z: { show: true, usecolormap: true, highlightcolor: '#00d4ff', project: { z: true } },
+        x: { show: true, color: 'rgba(0,212,255,0.08)', width: 1 },
+        y: { show: true, color: 'rgba(0,212,255,0.08)', width: 1 },
+      },
+      hovertemplate: 'Strike: $%{x:.0f}<br>DTE: %{y}d<br>IV: %{z:.1f}%<extra></extra>',
+      lighting: { ambient: 0.55, diffuse: 0.65, specular: 0.2, roughness: 0.9, fresnel: 0.3 },
+      opacity: 0.95,
+    }], {
+      scene: {
+        xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
+        yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
+        zaxis: { title: { text: 'IV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
+        bgcolor: '#111117', camera: { eye: { x: 1.6, y: -1.9, z: 0.65 } },
+        aspectratio: { x: 1.2, y: 1, z: 0.6 },
+      },
+      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
+      font: { color: '#555568', family: 'Geist Mono', size: 9 },
+      margin: { l: 0, r: 0, t: 36, b: 0 },
+      title: { text: `${sym} Implied Volatility Surface (Calls)`, font: { size: 12, color: '#a0a0b4' } },
     }, { responsive: true, displayModeBar: false });
   }, [opts, sym, plotlyReady]);
 
@@ -186,9 +246,29 @@ export default function Dashboard() {
     const dtes = [...new Set(calls.map(d => d.dte))].sort((a, b) => a - b);
     const lk = {}; calls.forEach(d => { lk[`${d.strike}-${d.dte}`] = d.iv; });
     const z = dtes.map(dte => strikes.map(k => { const iv = lk[`${k}-${dte}`]; return iv != null ? +(iv - rv).toFixed(2) : null; }));
-    window.Plotly.newPlot(ivrvRef.current, [{ type: 'surface', x: strikes, y: dtes, z, zmid: 0, colorscale: [[0,'#cc1133'],[0.25,'#882244'],[0.5,'#1a1a25'],[0.75,'#224488'],[1,'#00eebb']], hovertemplate: 'Strike: $%{x:.0f}<br>DTE: %{y}d<br>IV−RV: %{z:+.1f}%<extra></extra>', lighting: { ambient: 0.5, diffuse: 0.6, specular: 0.3, roughness: 0.8 } }], {
-      scene: { xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, zaxis: { title: { text: 'IV − RV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, bgcolor: '#111117', camera: { eye: { x: 1.5, y: -1.8, z: 0.7 } } },
-      paper_bgcolor: '#111117', plot_bgcolor: '#111117', font: { color: '#555568', family: 'Geist Mono', size: 9 }, margin: { l: 0, r: 0, t: 36, b: 0 }, title: { text: `${sym} IV−RV Gap | RV(90d) = ${rv.toFixed(1)}%`, font: { size: 12, color: '#a0a0b4' } },
+    window.Plotly.newPlot(ivrvRef.current, [{
+      type: 'surface', x: strikes, y: dtes, z, zmid: 0,
+      colorscale: [[0,'#cc1133'],[0.2,'#993355'],[0.4,'#553355'],[0.5,'#1a1a25'],[0.6,'#334477'],[0.8,'#2288aa'],[1,'#00eebb']],
+      contours: {
+        z: { show: true, usecolormap: true, highlightcolor: '#ffffff', project: { z: true } },
+        x: { show: true, color: 'rgba(255,255,255,0.04)', width: 1 },
+        y: { show: true, color: 'rgba(255,255,255,0.04)', width: 1 },
+      },
+      hovertemplate: 'Strike: $%{x:.0f}<br>DTE: %{y}d<br>IV−RV: %{z:+.1f}%<extra></extra>',
+      lighting: { ambient: 0.55, diffuse: 0.65, specular: 0.2, roughness: 0.9, fresnel: 0.3 },
+      opacity: 0.95,
+    }], {
+      scene: {
+        xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
+        yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
+        zaxis: { title: { text: 'IV − RV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
+        bgcolor: '#111117', camera: { eye: { x: 1.6, y: -1.9, z: 0.65 } },
+        aspectratio: { x: 1.2, y: 1, z: 0.6 },
+      },
+      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
+      font: { color: '#555568', family: 'Geist Mono', size: 9 },
+      margin: { l: 0, r: 0, t: 36, b: 0 },
+      title: { text: `${sym} IV−RV Gap | RV(90d) = ${rv.toFixed(1)}%`, font: { size: 12, color: '#a0a0b4' } },
     }, { responsive: true, displayModeBar: false });
   }, [opts, sym, plotlyReady]);
 
@@ -204,9 +284,9 @@ export default function Dashboard() {
   // Ratios helpers
   const R = fin?.ratios || {};
   const ratioItems = [
-    { l: 'P/E', v: R.peRatioTTM }, { l: 'P/B', v: R.priceToBookRatioTTM }, { l: 'P/S', v: R.priceToSalesRatioTTM },
-    { l: 'ROE', v: R.returnOnEquityTTM, pct: true }, { l: 'ROA', v: R.returnOnAssetsTTM, pct: true }, { l: 'Debt/Eq', v: R.debtEquityRatioTTM },
-    { l: 'Curr Ratio', v: R.currentRatioTTM }, { l: 'Gross Mgn', v: R.grossProfitMarginTTM, pct: true }, { l: 'Net Mgn', v: R.netProfitMarginTTM, pct: true },
+    { l: 'P/E', v: R.priceToEarningsRatioTTM }, { l: 'P/B', v: R.priceToBookRatioTTM }, { l: 'P/S', v: R.priceToSalesRatioTTM },
+    { l: 'Debt/Eq', v: R.debtToEquityRatioTTM }, { l: 'Debt/Assets', v: R.debtToAssetsRatioTTM }, { l: 'Curr Ratio', v: R.currentRatioTTM },
+    { l: 'P/FCF', v: R.priceToFreeCashFlowRatioTTM }, { l: 'Gross Mgn', v: R.grossProfitMarginTTM, pct: true }, { l: 'Net Mgn', v: R.netProfitMarginTTM, pct: true },
   ];
 
   // Forecast
@@ -254,7 +334,15 @@ export default function Dashboard() {
             {['1Min','5Min','15Min','1Hour','1Day'].map(t => (
               <button key={t} className={`tf ${tf === t ? 'a' : ''}`} onClick={() => setTf(t)}>{t.replace('Min','m').replace('Hour','H').replace('Day','D')}</button>
             ))}
-            <span className="cl">Heikin Ashi · EMA 8/21/55 · Vol</span>
+            <span className="cb-sep">|</span>
+            {[['heikin','HA'],['candle','Candle'],['bar','Bar'],['line','Line'],['area','Area']].map(([id, lbl]) => (
+              <button key={id} className={`tf ${chartType === id ? 'a' : ''}`} onClick={() => setChartType(id)}>{lbl}</button>
+            ))}
+            <span className="cb-sep">|</span>
+            {[['America/New_York','ET'],['America/Chicago','CT'],['America/Denver','MT'],['America/Los_Angeles','PT'],['UTC','UTC']].map(([id, lbl]) => (
+              <button key={id} className={`tf ${tz === id ? 'a' : ''}`} onClick={() => setTz(id)}>{lbl}</button>
+            ))}
+            <span className="cl">{chartType === 'candle' ? 'Candlestick' : chartType === 'bar' ? 'OHLC Bar' : chartType === 'line' ? 'Line' : chartType === 'area' ? 'Area' : 'Heikin Ashi'} · EMA 8/21/55 · Vol</span>
             <div className="ld" /><span className="ll">LIVE</span>
           </div>
           {ld.stock ? <div style={{ height: 500 }}><Load t="Fetching bars..." /></div>
@@ -271,13 +359,13 @@ export default function Dashboard() {
                 {earn.calendar?.[0]?.date && (
                   <div className="ne"><span className="ne-icon">📅</span><div><div className="ne-lbl">Next Earnings</div><div className="ne-date">{earn.calendar[0].date}</div></div></div>
                 )}
-                {earn.history?.length > 0 && (
+                {earn.history?.length > 0 ? (
                   <table className="dt"><thead><tr><th>Date</th><th>Est.</th><th>Actual</th><th>Surprise</th></tr></thead>
                     <tbody>{earn.history.slice(0, 8).map((e, i) => {
                       const s = e.eps != null && e.epsEstimated ? ((e.eps - e.epsEstimated) / Math.abs(e.epsEstimated || 1) * 100) : null;
                       return <tr key={i}><td>{e.date}</td><td>${e.epsEstimated?.toFixed(2) ?? '—'}</td><td>${e.eps?.toFixed(2) ?? '—'}</td><td className={s != null ? (s >= 0 ? 'vg' : 'vr') : ''}>{s != null ? `${s >= 0 ? '+' : ''}${s.toFixed(1)}%` : '—'}</td></tr>;
                     })}</tbody></table>
-                )}
+                ) : <div className="loading" style={{ padding: 16 }}>No earnings estimate history available for {sym}</div>}
                 {earn.quarterly_income?.length > 0 && (
                   <div style={{ marginTop: 16 }}><div className="sl">Quarterly Revenue</div>
                     <div className="rvb">{[...earn.quarterly_income].reverse().slice(-8).map((q, i, arr) => {
@@ -286,7 +374,7 @@ export default function Dashboard() {
                       return <div key={i} className="rvb-c"><div className="rvb-bar" style={{ height: `${Math.max(pct * 70, 2)}px`, background: 'linear-gradient(to top, rgba(0,212,255,.6), rgba(0,245,155,.6))' }} /><div className="rvb-l">{q.period}</div></div>;
                     })}</div></div>
                 )}
-              </> : null}
+              </> : <div className="loading" style={{ padding: 24 }}>No earnings data available for {sym}</div>}
             </div>
           </div>
 
@@ -297,6 +385,7 @@ export default function Dashboard() {
                 <div className="rg" style={{ marginBottom: 14 }}>
                   {ratioItems.map((r, i) => <div key={i} className="rb"><div className="rb-l">{r.l}</div><div className="rb-v">{r.v != null ? (r.pct ? (r.v * 100).toFixed(1) + '%' : r.v.toFixed(2)) : '—'}</div></div>)}
                 </div>
+                {ratioItems.every(r => r.v == null) && <div className="loading" style={{ padding: 8, fontSize: 10 }}>Financial ratios unavailable — may require FMP premium plan</div>}
                 <div className="tabs">
                   {[['income','Income'],['balance','Balance'],['cashflow','Cash Flow']].map(([id, lbl]) => (
                     <button key={id} className={`tab ${tab === id ? 'a' : ''}`} onClick={() => setTab(id)}>{lbl}</button>
@@ -304,7 +393,7 @@ export default function Dashboard() {
                 </div>
                 {tab === 'income' && fin.income?.length > 0 && (
                   <table className="dt"><thead><tr><th>Qtr</th><th>Revenue</th><th>Net Inc</th><th>EPS</th></tr></thead>
-                    <tbody>{fin.income.slice(0, 6).map((s, i) => <tr key={i}><td>{s.period} {new Date(s.date).getFullYear()}</td><td className="vc">{fmt(s.revenue)}</td><td className={s.netIncome >= 0 ? 'vg' : 'vr'}>{fmt(s.netIncome)}</td><td>{s.eps?.toFixed(2) ?? '—'}</td></tr>)}</tbody></table>
+                    <tbody>{fin.income.slice(0, 5).map((s, i) => <tr key={i}><td>{s.period} {new Date(s.date).getFullYear()}</td><td className="vc">{fmt(s.revenue)}</td><td className={s.netIncome >= 0 ? 'vg' : 'vr'}>{fmt(s.netIncome)}</td><td>{s.eps?.toFixed(2) ?? '—'}</td></tr>)}</tbody></table>
                 )}
                 {tab === 'balance' && fin.balance?.length > 0 && (
                   <table className="dt"><thead><tr><th>Qtr</th><th>Assets</th><th>Debt</th><th>Equity</th></tr></thead>
@@ -314,7 +403,7 @@ export default function Dashboard() {
                   <table className="dt"><thead><tr><th>Qtr</th><th>Op CF</th><th>CapEx</th><th>Free CF</th></tr></thead>
                     <tbody>{fin.cashflow.map((s, i) => <tr key={i}><td>{s.period} {new Date(s.date).getFullYear()}</td><td className="vc">{fmt(s.operatingCashFlow)}</td><td className="vr">{fmt(s.capitalExpenditure)}</td><td className="vg">{fmt(s.freeCashFlow)}</td></tr>)}</tbody></table>
                 )}
-              </> : null}
+              </> : <div className="loading" style={{ padding: 24 }}>No financial data available for {sym}</div>}
             </div>
           </div>
         </div>
@@ -323,14 +412,22 @@ export default function Dashboard() {
         <div className="g2 fi fi3">
           <div className="card">
             <div className="card-h"><span className="card-t">Implied Volatility Surface</span><span className="badge b-c">ALPACA · 60s</span></div>
-            {ld.opts ? <div className="ivbox"><Load t="Computing IV surface..." /></div> : er.opts ? <Err m={er.opts} /> : <>
+            {ld.opts ? <div className="ivbox"><Load t="Computing IV surface..." /></div>
+              : er.opts ? <div className="ivbox"><Err m={er.opts} /></div>
+              : opts && (!opts.surface || opts.surface.filter(d => d.type === 'call').length < 5)
+                ? <div className="ivbox"><div className="loading" style={{ flexDirection: 'column', gap: 6 }}>No IV surface data available for {sym}<span style={{ fontSize: 10, color: 'var(--ash)' }}>Options data requires active contracts with sufficient liquidity</span></div></div>
+              : <>
               <div ref={ivRef} className="ivbox" />
               <div className="ivleg"><b>X:</b> Strike price ($). <b>Y:</b> Days to expiration. <b>Z (height/color):</b> Implied Volatility (%) — market&apos;s expected annualized move. Higher peaks = greater uncertainty. The &quot;smile&quot; across strikes shows vol skew.</div>
             </>}
           </div>
           <div className="card">
             <div className="card-h"><span className="card-t">IV − RV Gap Surface</span><span className="badge b-g">{opts?.rv ? `RV(90d) = ${opts.rv.toFixed(1)}%` : 'COMPUTING'}</span></div>
-            {ld.opts ? <div className="ivbox"><Load t="Computing IV-RV gap..." /></div> : <>
+            {ld.opts ? <div className="ivbox"><Load t="Computing IV-RV gap..." /></div>
+              : er.opts ? <div className="ivbox"><Err m={er.opts} /></div>
+              : opts && (!opts.surface?.length || !opts.rv)
+                ? <div className="ivbox"><div className="loading" style={{ flexDirection: 'column', gap: 6 }}>No IV-RV gap data available for {sym}<span style={{ fontSize: 10, color: 'var(--ash)' }}>Requires both options chain and 90-day historical price data</span></div></div>
+              : <>
               <div ref={ivrvRef} className="ivbox" />
               <div className="ivleg"><b>Shows:</b> Gap between <b>Implied Vol</b> (forward-looking) and <b>Realized Vol</b> (90-day historical).<br /><b style={{ color: 'var(--neon-cyan)' }}>Teal (positive):</b> IV &gt; RV → options &quot;expensive&quot; → consider selling premium.<br /><b style={{ color: 'var(--neon-red)' }}>Red (negative):</b> IV &lt; RV → options &quot;cheap&quot; → consider buying protection.</div>
             </>}
@@ -344,10 +441,10 @@ export default function Dashboard() {
             {tgt ? (
               <div className="fc-grid">
                 {[
-                  { s: 'Target High', v: tgt.targetHigh || tgt.targetHigh, c: 'vg', l: 'Most bullish' },
-                  { s: 'Median', v: tgt.targetMedian || tgt.targetMedian, c: 'vc', l: 'Consensus mid' },
-                  { s: 'Mean', v: tgt.targetMean || tgt.targetMean, c: 'vp', l: `${tgt.numberOfAnalysts || '?'} analysts` },
-                  { s: 'Target Low', v: tgt.targetLow || tgt.targetLow, c: 'vr', l: 'Most bearish' },
+                  { s: 'Last Month Avg', v: tgt.targetHigh, c: 'vg', l: 'Recent consensus' },
+                  { s: 'Last Quarter Avg', v: tgt.targetMedian, c: 'vc', l: 'Quarterly consensus' },
+                  { s: 'Last Year Avg', v: tgt.targetMean, c: 'vp', l: `${tgt.numberOfAnalysts || '?'} analysts` },
+                  { s: 'All-Time Avg', v: tgt.targetLow, c: 'vr', l: 'Historical avg' },
                 ].map((f, i) => <div key={i} className="fc-i"><div className="fc-src">{f.s}</div><div className={`fc-val ${f.c}`}>${f.v?.toFixed(2) || '—'}</div><div className="fc-lbl">{f.l}</div></div>)}
               </div>
             ) : <div className="loading" style={{ padding: 24 }}>No analyst targets available for {sym}</div>}

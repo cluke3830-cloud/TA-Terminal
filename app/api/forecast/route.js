@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
-const FMP3 = 'https://financialmodelingprep.com/api/v3';
-const FMP4 = 'https://financialmodelingprep.com/api/v4';
+import { getCached, setCache } from '../_cache';
+
+const FMP = 'https://financialmodelingprep.com/stable';
 
 async function fmpGet(url) {
   try {
@@ -17,20 +18,50 @@ export async function GET(req) {
   const key = process.env.FMP_API_KEY;
   if (!key) return Response.json({ error: 'FMP_API_KEY not set' }, { status: 500 });
 
+  const cacheKey = `fc:${symbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) return Response.json(cached);
+
   try {
-    const [targets, news, upgrades] = await Promise.all([
-      fmpGet(`${FMP4}/price-target-summary?symbol=${symbol}&apikey=${key}`),
-      fmpGet(`${FMP3}/stock_news?tickers=${symbol}&limit=5&apikey=${key}`),
-      fmpGet(`${FMP4}/upgrades-downgrades-consensus?symbol=${symbol}&apikey=${key}`),
+    const [targetSummary, grades, news] = await Promise.all([
+      fmpGet(`${FMP}/price-target-summary?symbol=${symbol}&apikey=${key}`),
+      fmpGet(`${FMP}/grades-consensus?symbol=${symbol}&apikey=${key}`),
+      fmpGet(`${FMP}/stock-news?tickers=${symbol}&limit=5&apikey=${key}`),
     ]);
 
     const first = d => (Array.isArray(d) ? d[0] || null : d || null);
 
-    return Response.json({
-      targets: first(targets),
-      upgrades: first(upgrades),
-      news: Array.isArray(news) ? news.slice(0, 5) : [],
-    });
+    // Build targets from price-target-summary (free tier compatible)
+    let targets = null;
+    const summary = first(targetSummary);
+
+    if (summary) {
+      targets = {
+        targetHigh: summary.lastMonthAvgPriceTarget || null,
+        targetLow: summary.allTimeAvgPriceTarget || null,
+        targetMedian: summary.lastQuarterAvgPriceTarget || null,
+        targetMean: summary.lastYearAvgPriceTarget || null,
+        numberOfAnalysts: summary.lastYearCount || null,
+      };
+    }
+
+    // Map grades-consensus
+    const gradesData = first(grades);
+    const upgrades = gradesData ? {
+      strongBuy: gradesData.strongBuy || 0,
+      buy: gradesData.buy || 0,
+      hold: gradesData.hold || 0,
+      sell: gradesData.sell || 0,
+      strongSell: gradesData.strongSell || 0,
+      consensus: gradesData.consensus || null,
+    } : null;
+
+    // Use stock-news, or empty if not available on free tier
+    const newsData = Array.isArray(news) && news.length > 0 ? news : [];
+
+    const result = { targets, upgrades, news: newsData.slice(0, 5) };
+    setCache(cacheKey, result);
+    return Response.json(result);
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
