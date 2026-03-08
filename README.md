@@ -1,4 +1,4 @@
-# ⚛ Quantum Stock Terminal
+# ⚛ TC Stock Terminal
 
 Live stock analysis dashboard: Heikin Ashi charts, 3D IV surfaces, earnings, financials, analyst targets.
 
