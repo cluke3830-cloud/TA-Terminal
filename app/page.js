@@ -67,12 +67,22 @@ export default function Dashboard() {
   const [tab, setTab] = useState('income');
   const [clock, setClock] = useState(fmtTime());
 
+  const [plotlyReady, setPlotlyReady] = useState(false);
+
   const cRef = useRef(null);
   const cInst = useRef(null);
   const ivRef = useRef(null);
   const ivrvRef = useRef(null);
 
   useEffect(() => { const t = setInterval(() => setClock(fmtTime()), 1000); return () => clearInterval(t); }, []);
+
+  // Detect Plotly CDN script load
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.Plotly) { setPlotlyReady(true); return; }
+    const t = setInterval(() => { if (window.Plotly) { setPlotlyReady(true); clearInterval(t); } }, 100);
+    return () => clearInterval(t);
+  }, []);
 
   // Search
   useEffect(() => {
@@ -125,12 +135,12 @@ export default function Dashboard() {
       });
       cInst.current = chart;
 
-      const candles = chart.addSeries(LWC.CandlestickSeries, {
+      const candles = chart.addCandlestickSeries({
         upColor: '#00f59b', downColor: '#ff3355', borderUpColor: '#00f59b', borderDownColor: '#ff3355', wickUpColor: '#00f59b', wickDownColor: '#ff3355',
       });
       candles.setData(toHA(stock.bars));
 
-      const vol = chart.addSeries(LWC.HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
+      const vol = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
       chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
       vol.setData(stock.bars.map(b => ({ time: Math.floor(new Date(b.t).getTime() / 1000), value: b.v, color: b.c >= b.o ? 'rgba(0,245,155,0.15)' : 'rgba(255,51,85,0.15)' })));
 
@@ -138,7 +148,7 @@ export default function Dashboard() {
       const times = stock.bars.map(b => Math.floor(new Date(b.t).getTime() / 1000));
       const addEma = (p, col, w) => {
         const vals = calcEMA(closes, p);
-        const s = chart.addSeries(LWC.LineSeries, { color: col, lineWidth: w, crosshairMarkerVisible: false });
+        const s = chart.addLineSeries({ color: col, lineWidth: w, crosshairMarkerVisible: false });
         s.setData(vals.map((v, i) => v != null ? { time: times[i], value: +v.toFixed(4) } : null).filter(Boolean));
       };
       addEma(8, '#00d4ff', 1); addEma(21, '#ff8833', 1); addEma(55, '#9955ff', 2);
@@ -153,7 +163,7 @@ export default function Dashboard() {
 
   // ── Plotly: IV Surface ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!opts?.surface?.length || !ivRef.current || typeof window === 'undefined' || !window.Plotly) return;
+    if (!opts?.surface?.length || !ivRef.current || !plotlyReady) return;
     const calls = opts.surface.filter(d => d.type === 'call');
     if (calls.length < 5) return;
     const strikes = [...new Set(calls.map(d => d.strike))].sort((a, b) => a - b);
@@ -164,11 +174,11 @@ export default function Dashboard() {
       scene: { xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, zaxis: { title: { text: 'IV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, bgcolor: '#111117', camera: { eye: { x: 1.5, y: -1.8, z: 0.7 } } },
       paper_bgcolor: '#111117', plot_bgcolor: '#111117', font: { color: '#555568', family: 'Geist Mono', size: 9 }, margin: { l: 0, r: 0, t: 36, b: 0 }, title: { text: `${sym} Implied Volatility Surface (Calls)`, font: { size: 12, color: '#a0a0b4' } },
     }, { responsive: true, displayModeBar: false });
-  }, [opts, sym]);
+  }, [opts, sym, plotlyReady]);
 
   // ── Plotly: IV-RV Gap ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!opts?.surface?.length || !opts?.rv || !ivrvRef.current || typeof window === 'undefined' || !window.Plotly) return;
+    if (!opts?.surface?.length || !opts?.rv || !ivrvRef.current || !plotlyReady) return;
     const calls = opts.surface.filter(d => d.type === 'call');
     if (calls.length < 5) return;
     const rv = opts.rv;
@@ -180,7 +190,7 @@ export default function Dashboard() {
       scene: { xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, zaxis: { title: { text: 'IV − RV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835' }, bgcolor: '#111117', camera: { eye: { x: 1.5, y: -1.8, z: 0.7 } } },
       paper_bgcolor: '#111117', plot_bgcolor: '#111117', font: { color: '#555568', family: 'Geist Mono', size: 9 }, margin: { l: 0, r: 0, t: 36, b: 0 }, title: { text: `${sym} IV−RV Gap | RV(90d) = ${rv.toFixed(1)}%`, font: { size: 12, color: '#a0a0b4' } },
     }, { responsive: true, displayModeBar: false });
-  }, [opts, sym]);
+  }, [opts, sym, plotlyReady]);
 
   const pick = s => { setSym(s); setQ(''); setDD(false); setSR([]); };
 
@@ -189,7 +199,7 @@ export default function Dashboard() {
   const prev = bars[bars.length - 2];
   const price = last?.c;
   const chg = last && prev ? ((last.c - prev.c) / prev.c * 100) : null;
-  const coName = fin?.profile?.companyName || '';
+  const coName = fin?.profile?.companyName || fin?.profile?.name || '';
 
   // Ratios helpers
   const R = fin?.ratios || {};
@@ -200,7 +210,7 @@ export default function Dashboard() {
   ];
 
   // Forecast
-  const tgt = fc?.targets || fc?.consensus || null;
+  const tgt = fc?.targets || null;
 
   return (
     <>
