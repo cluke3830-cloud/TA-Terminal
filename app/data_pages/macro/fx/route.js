@@ -1,7 +1,6 @@
 import { getCached, setCache } from '../../_cache';
 
-const CURR = ['USD', 'EUR', 'JPY', 'GBP', 'CNY', 'AUD', 'CAD', 'CHF'];
-const DXY_CURR = ['EUR', 'JPY', 'GBP', 'CAD', 'SEK', 'CHF'];
+const CURR = ['USD', 'EUR', 'JPY', 'GBP', 'CNY', 'AUD', 'CAD', 'CHF', 'NZD', 'MXN', 'KRW'];
 
 async function fmpFx(symbol, key) {
   try {
@@ -12,19 +11,29 @@ async function fmpFx(symbol, key) {
   } catch (_) { return null; }
 }
 
-// Returns the rate of (1 BASE = X QUOTE)
+async function fmpFxHistory(symbol, key) {
+  try {
+    const r = await fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!Array.isArray(j)) return null;
+    return j
+      .map((p) => ({ date: p.date, price: p.price ?? p.close }))
+      .filter((p) => p.date && p.price != null)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (_) { return null; }
+}
+
 async function getRate(base, quote, key, cache) {
   if (base === quote) return 1;
   const k = `${base}${quote}`;
   if (cache[k] != null) return cache[k];
-  // Try direct
   const direct = await fmpFx(`${base}${quote}`, key);
   if (direct?.price) {
     cache[k] = direct.price;
     cache[`${quote}${base}`] = 1 / direct.price;
     return direct.price;
   }
-  // Try inverse
   const inv = await fmpFx(`${quote}${base}`, key);
   if (inv?.price) {
     cache[k] = 1 / inv.price;
@@ -32,6 +41,49 @@ async function getRate(base, quote, key, cache) {
     return cache[k];
   }
   return null;
+}
+
+// For non-USD currency C, return USD/C % change over `days` calendar days back.
+// Positive number = USD strengthened vs C over the window (i.e. C weakened).
+async function pctChange(currency, days, key) {
+  if (currency === 'USD') return 0;
+  // Try USD{C}; if missing, fall back to {C}USD inverted.
+  let hist = await fmpFxHistory(`USD${currency}`, key);
+  let inverted = false;
+  if (!hist || hist.length < 2) {
+    hist = await fmpFxHistory(`${currency}USD`, key);
+    inverted = true;
+  }
+  if (!hist || hist.length < 2) return null;
+
+  const last = hist[hist.length - 1].price;
+  // Find a price at least `days` calendar days before the latest sample.
+  const lastDate = new Date(hist[hist.length - 1].date);
+  const targetDate = new Date(lastDate.getTime() - days * 864e5);
+  let prior = null;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    if (new Date(hist[i].date) <= targetDate) { prior = hist[i].price; break; }
+  }
+  if (prior == null) prior = hist[0].price;
+  if (!prior) return null;
+
+  const raw = ((last - prior) / prior) * 100;
+  return inverted ? -raw : raw; // {C}USD up means C strengthened, USD weakened.
+}
+
+function buildMatrix(currencies, pairChanges) {
+  const matrix = {};
+  for (const a of currencies) {
+    matrix[a] = {};
+    for (const b of currencies) {
+      if (a === b) { matrix[a][b] = 0; continue; }
+      const aChg = a === 'USD' ? 0 : -(pairChanges[a] ?? 0); // a vs USD
+      const bChg = b === 'USD' ? 0 : -(pairChanges[b] ?? 0);
+      const v = pairChanges[a] == null || pairChanges[b] == null ? null : aChg - bChg;
+      matrix[a][b] = v != null ? +v.toFixed(2) : null;
+    }
+  }
+  return matrix;
 }
 
 export async function GET() {
@@ -43,74 +95,51 @@ export async function GET() {
 
   try {
     const rateCache = {};
-    // Fetch rates of every currency vs USD (1 USD = X CCY)
     const usdRates = { USD: 1 };
     await Promise.all(CURR.filter((c) => c !== 'USD').map(async (c) => {
-      const r = await getRate('USD', c, KEY, rateCache);
-      usdRates[c] = r;
+      usdRates[c] = await getRate('USD', c, KEY, rateCache);
     }));
-    // SEK separately for DXY
-    if (!usdRates.SEK) {
-      usdRates.SEK = await getRate('USD', 'SEK', KEY, rateCache);
+    if (!usdRates.SEK) usdRates.SEK = await getRate('USD', 'SEK', KEY, rateCache);
+
+    const valuesMatrix = {};
+    for (const a of CURR) {
+      valuesMatrix[a] = {};
+      for (const b of CURR) {
+        if (a === b) { valuesMatrix[a][b] = 1; continue; }
+        const ra = usdRates[a]; const rb = usdRates[b];
+        valuesMatrix[a][b] = (ra && rb) ? +(rb / ra).toFixed(5) : null;
+      }
     }
 
-    // 24h change percentages for each pair vs USD (use FMP quote data)
-    const pairChanges = {};
+    // 24h pairChanges from quote.changesPercentage
+    const pairChanges24h = {};
     await Promise.all(CURR.filter((c) => c !== 'USD').map(async (c) => {
       const q = await fmpFx(`USD${c}`, KEY);
       if (q && q.changesPercentage != null) {
-        pairChanges[c] = +q.changesPercentage.toFixed(3);
+        pairChanges24h[c] = +q.changesPercentage.toFixed(3);
       } else {
         const inv = await fmpFx(`${c}USD`, KEY);
-        if (inv && inv.changesPercentage != null) pairChanges[c] = -inv.changesPercentage;
-        else pairChanges[c] = 0;
+        if (inv && inv.changesPercentage != null) pairChanges24h[c] = -inv.changesPercentage;
+        else pairChanges24h[c] = null;
       }
     }));
 
-    // Build matrix: matrix[A][B] = strength of A relative to B
-    // Convention: matrix[A][B] = (rate_USD_A) / (rate_USD_B) inverse: how many B units per A
-    // Display in % change, where positive means A appreciated vs B over 24h
-    const matrix = {};
-    const valuesMatrix = {};
-    for (const a of CURR) {
-      matrix[a] = {};
-      valuesMatrix[a] = {};
-      for (const b of CURR) {
-        if (a === b) {
-          matrix[a][b] = 0;
-          valuesMatrix[a][b] = 1;
-          continue;
-        }
-        // Cross rate: 1 A = (1/rate_USD_A) USD = (1/rate_USD_A) * rate_USD_B in B
-        const ra = usdRates[a]; const rb = usdRates[b];
-        if (ra == null || rb == null) {
-          matrix[a][b] = null;
-          valuesMatrix[a][b] = null;
-          continue;
-        }
-        // Strength = % change of A vs B over 24h.
-        // changeA_vs_USD = -pairChanges[a]  (since pairChanges[c] = USD/c change → if USD up, c down)
-        // For non-USD pair vs USD: a vs usd = -pairChanges[a]
-        // For USD: 0
-        const aChg = a === 'USD' ? 0 : -(pairChanges[a] ?? 0);
-        const bChg = b === 'USD' ? 0 : -(pairChanges[b] ?? 0);
-        matrix[a][b] = +(aChg - bChg).toFixed(2);
-        valuesMatrix[a][b] = +(rb / ra).toFixed(5);
-      }
-    }
+    // 1W and 1M from historical
+    const pairChanges1w = {};
+    const pairChanges1m = {};
+    await Promise.all(CURR.filter((c) => c !== 'USD').map(async (c) => {
+      pairChanges1w[c] = await pctChange(c, 7, KEY);
+      pairChanges1m[c] = await pctChange(c, 30, KEY);
+    }));
 
-    // DXY computation via ICE formula
+    const matrices = {
+      '24h': buildMatrix(CURR, pairChanges24h),
+      '1w':  buildMatrix(CURR, pairChanges1w),
+      '1m':  buildMatrix(CURR, pairChanges1m),
+    };
+
     let dxy = null;
     if (usdRates.EUR && usdRates.JPY && usdRates.GBP && usdRates.CAD && usdRates.SEK && usdRates.CHF) {
-      dxy = 50.14348112
-        * Math.pow(usdRates.EUR, 0.576) // Note: ICE uses EUR/USD^-0.576, so USD/EUR^0.576
-        * Math.pow(usdRates.JPY, 0.136)
-        * Math.pow(usdRates.GBP, 0.119)
-        * Math.pow(usdRates.CAD, 0.091)
-        * Math.pow(usdRates.SEK, 0.042)
-        * Math.pow(usdRates.CHF, 0.036);
-      // Wait - check formula sign. Official: DXY = 50.14348112 × (EURUSD^-0.576) × (USDJPY^0.136) × (GBPUSD^-0.119) × (USDCAD^0.091) × (USDSEK^0.042) × (USDCHF^0.036)
-      // So we need EUR/USD = 1/usdRates.EUR (since usdRates.EUR is USD/EUR).
       const eurUsd = 1 / usdRates.EUR;
       const gbpUsd = 1 / usdRates.GBP;
       dxy = 50.14348112
@@ -123,20 +152,19 @@ export async function GET() {
       dxy = +dxy.toFixed(2);
     }
 
-    // Average DXY change ≈ -aChange of EUR (rough proxy, since EUR is dominant)
-    const dxyChange24h = -(matrix.USD?.EUR ?? 0);
+    const dxyChange24h = matrices['24h'].USD?.EUR != null ? -matrices['24h'].USD.EUR : 0;
 
     const data = {
       currencies: CURR,
-      matrix,        // % change matrix (24h relative strength)
-      values: valuesMatrix, // raw exchange rates
+      matrices,
+      values: valuesMatrix,
       usdRates,
-      pairChanges,
+      pairChanges: pairChanges24h,
       dxy,
       dxyChange24h: +dxyChange24h.toFixed(2),
       lastUpdated: new Date().toISOString(),
     };
-    setCache('macro:fx', data);
+    setCache('macro:fx', data, 30 * 60 * 1000); // 30 min — heavy: 11 currencies × 3 timeframes
     return Response.json(data);
   } catch (e) {
     return Response.json({ error: e.message || 'FX fetch failed' }, { status: 500 });

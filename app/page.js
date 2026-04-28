@@ -117,7 +117,7 @@ export default function Dashboard() {
   }, []);
 
   const fetchAll = useCallback((s, t) => {
-    fetchS('stock', `/data_pages/stock?symbol=${s}&timeframe=${t}&days=5`, setStock);
+    fetchS('stock', `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=3`, setStock);
     fetchS('earn', `/data_pages/earnings?symbol=${s}`, setEarn);
     fetchS('fin', `/data_pages/financials?symbol=${s}`, setFin);
     fetchS('opts', `/data_pages/options?symbol=${s}`, setOpts);
@@ -128,7 +128,7 @@ export default function Dashboard() {
 
   // Auto-refresh 60s
   useEffect(() => {
-    const i1 = setInterval(() => fetchS('stock', `/data_pages/stock?symbol=${sym}&timeframe=${tf}&days=5`, setStock), 60000);
+    const i1 = setInterval(() => fetchS('stock', `/data_pages/stock?symbol=${sym}&timeframe=${tf}&tradingDays=3`, setStock), 60000);
     const i2 = setInterval(() => fetchS('opts', `/data_pages/options?symbol=${sym}`, setOpts), 60000);
     return () => { clearInterval(i1); clearInterval(i2); };
   }, [sym, tf, fetchS]);
@@ -301,11 +301,12 @@ export default function Dashboard() {
         </div>
         <div className="sw">
           <span className="si-icon">⌕</span>
-          <input className="si" placeholder="Search ticker..." value={q}
+          <input className="si" placeholder="Search ticker · ↵ to apply" value={q}
             onChange={e => setQ(e.target.value.toUpperCase())}
             onFocus={() => sr.length > 0 && setDD(true)}
             onBlur={() => setTimeout(() => setDD(false), 180)}
             onKeyDown={e => { if (e.key === 'Enter' && q) pick(q); }} />
+          {q && !dd && <span className="si-hint">↵ &quot;{q}&quot;</span>}
           {dd && sr.length > 0 && (
             <div className="sdd">
               {sr.map(r => <div key={r.symbol} className="sdd-i" onMouseDown={() => pick(r.symbol)}>
@@ -342,8 +343,15 @@ export default function Dashboard() {
             {[['America/New_York','ET'],['America/Chicago','CT'],['America/Denver','MT'],['America/Los_Angeles','PT'],['UTC','UTC']].map(([id, lbl]) => (
               <button key={id} className={`tf ${tz === id ? 'a' : ''}`} onClick={() => setTz(id)}>{lbl}</button>
             ))}
-            <span className="cl">{chartType === 'candle' ? 'Candlestick' : chartType === 'bar' ? 'OHLC Bar' : chartType === 'line' ? 'Line' : chartType === 'area' ? 'Area' : 'Heikin Ashi'} · EMA 8/21/55 · Vol</span>
-            <div className="ld" /><span className="ll">LIVE</span>
+            <span className="cl">{chartType === 'candle' ? 'Candlestick' : chartType === 'bar' ? 'OHLC Bar' : chartType === 'line' ? 'Line' : chartType === 'area' ? 'Area' : 'Heikin Ashi'} · EMA 8/21/55 · Vol · 3D</span>
+            {stock?.lastBarTimestamp && (
+              <span className={`chart-freshness fr-${stock.marketStatus || 'closed'}`}>
+                <span className="fr-dot" />
+                <span className="fr-label">{stock.marketStatus === 'open' ? 'LIVE' : stock.marketStatus === 'pre' ? 'PRE' : stock.marketStatus === 'post' ? 'POST' : 'CLOSED'}</span>
+                <span className="fr-feed">IEX</span>
+                <span className="fr-time">Last bar {new Date(stock.lastBarTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' })} ET</span>
+              </span>
+            )}
           </div>
           {ld.stock ? <div style={{ height: 500 }}><Load t="Fetching bars..." /></div>
             : er.stock ? <div style={{ height: 500 }}><Err m={er.stock} /></div>

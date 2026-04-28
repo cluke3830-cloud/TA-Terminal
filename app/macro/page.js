@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { fmt, fmtPct, fmtDate, fmtTime, Load, Err } from '../components/ui';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -80,22 +80,24 @@ function FearGreedGauge({ score, label, color }) {
   );
 }
 
-function FXMatrix({ fx }) {
-  if (!fx || !fx.matrix) return <div className="loading"><div className="spinner" />FX matrix loading…</div>;
+function FXMatrix({ fx, tf, onTfChange }) {
+  if (!fx || !fx.matrices) return <div className="loading"><div className="spinner" />FX matrix loading…</div>;
+  const matrix = fx.matrices[tf] || fx.matrices['24h'];
   const cur = fx.currencies;
   const cell = (a, b) => {
     if (a === b) return { bg: 'var(--graphite)', text: '—' };
-    const v = fx.matrix[a]?.[b];
+    const v = matrix[a]?.[b];
     if (v == null) return { bg: 'var(--obsidian)', text: '—' };
-    const intensity = Math.min(1, Math.abs(v) / 1.5);
+    const intensity = Math.min(1, Math.abs(v) / 2.0);
     const bg = v > 0
-      ? `rgba(0, 245, 155, ${0.10 + intensity * 0.45})`
+      ? `rgba(0, 245, 155, ${0.20 + intensity * 0.65})`
       : v < 0
-      ? `rgba(255, 51, 85, ${0.10 + intensity * 0.45})`
+      ? `rgba(255, 51, 85, ${0.20 + intensity * 0.65})`
       : 'rgba(85,85,104,0.15)';
     const text = (v > 0 ? '+' : '') + v.toFixed(2);
     return { bg, text };
   };
+  const tfLabel = tf === '24h' ? '24h' : tf === '1w' ? '1-week' : '1-month';
   return (
     <>
       <div className="fx-dxy">
@@ -103,11 +105,16 @@ function FXMatrix({ fx }) {
           <div className="fx-dxy-l">DXY · USD Index (ICE)</div>
           <div className="fx-dxy-v">{fx.dxy != null ? fx.dxy.toFixed(2) : '—'}</div>
         </div>
+        <div className="fx-tf">
+          {['24h', '1w', '1m'].map((t) => (
+            <button key={t} className={`mt ${tf === t ? 'a' : ''}`} onClick={() => onTfChange(t)}>{t.toUpperCase()}</button>
+          ))}
+        </div>
         <div className={`fx-dxy-c ${fx.dxyChange24h >= 0 ? 'comm-chg up' : 'comm-chg dn'}`}>
           {fx.dxyChange24h != null ? fmtPct(fx.dxyChange24h) : '—'} 24h
         </div>
       </div>
-      <div className="fx-matrix">
+      <div className="fx-matrix" style={{ gridTemplateColumns: `60px repeat(${cur.length}, 1fr)` }}>
         <div className="fx-mh">·</div>
         {cur.map((c) => <div key={`h-${c}`} className="fx-mh">{c}</div>)}
         {cur.map((a) => (
@@ -116,7 +123,7 @@ function FXMatrix({ fx }) {
             {cur.map((b) => {
               const c = cell(a, b);
               return (
-                <div key={`${a}-${b}`} className={`fx-mc${a === b ? ' diag' : ''}`} style={{ background: c.bg }} title={`${a}/${b}: ${c.text}%`}>
+                <div key={`${a}-${b}`} className={`fx-mc${a === b ? ' diag' : ''}`} style={{ background: c.bg }} title={`${a}/${b}: ${c.text}% (${tfLabel})`}>
                   {c.text}
                 </div>
               );
@@ -125,13 +132,13 @@ function FXMatrix({ fx }) {
         ))}
       </div>
       <div style={{ marginTop: 10, fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ash)', letterSpacing: 0.5 }}>
-        ROW = base currency · COL = quote · % = 24h relative strength of row vs col
+        ROW = base currency · COL = quote · % = {tfLabel} relative strength of row vs col
       </div>
     </>
   );
 }
 
-function CommodityCard({ c, plotlyReady }) {
+function CommodityCard({ c, plotlyReady, onExpand }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!plotlyReady || !ref.current || !c.sparkline || c.sparkline.length < 2) return;
@@ -139,8 +146,8 @@ function CommodityCard({ c, plotlyReady }) {
     const color = isUp ? '#00f59b' : '#ff3355';
     window.Plotly.newPlot(ref.current, [{
       type: 'scatter', mode: 'lines', x: c.sparkline.map((_, i) => i), y: c.sparkline,
-      line: { color, width: 1.5, shape: 'spline' }, fill: 'tozeroy',
-      fillcolor: isUp ? 'rgba(0,245,155,0.10)' : 'rgba(255,51,85,0.10)', hoverinfo: 'skip',
+      line: { color, width: 2, shape: 'spline' }, fill: 'tozeroy',
+      fillcolor: isUp ? 'rgba(0,245,155,0.12)' : 'rgba(255,51,85,0.12)', hoverinfo: 'skip',
     }], {
       paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
       xaxis: { visible: false, fixedrange: true },
@@ -148,15 +155,109 @@ function CommodityCard({ c, plotlyReady }) {
       margin: { l: 0, r: 0, t: 0, b: 0 }, showlegend: false,
     }, { displayModeBar: false, responsive: true });
   }, [plotlyReady, c.sparkline, c.changePct]);
+
+  const ytdColor = c.ytdPct == null ? 'var(--smoke)' : c.ytdPct >= 0 ? '#00f59b' : '#ff3355';
   return (
-    <div className="comm-card">
-      <div className="comm-name">{c.name}</div>
-      <div className="comm-price">{c.price != null ? fmt(c.price, c.price < 10 ? 3 : 2) : '—'}</div>
-      <div className={`comm-chg ${c.changePct == null ? '' : c.changePct >= 0 ? 'up' : 'dn'}`}>
-        {c.changePct != null ? fmtPct(c.changePct) : '—'}
+    <button type="button" className="comm-card" onClick={() => onExpand && onExpand(c)} aria-label={`Expand ${c.name} chart`}>
+      <div className="comm-row-top">
+        <div className="comm-name">{c.name}</div>
+        <span className={`comm-cat-tag cat-${c.category}`}>{c.category}</span>
       </div>
-      <div className="comm-unit">{c.unit}</div>
+      <div className="comm-price">{c.price != null ? fmt(c.price, c.price < 10 ? 3 : 2) : '—'}</div>
+      <div className="comm-row-mid">
+        <span className={`comm-chg ${c.changePct == null ? '' : c.changePct >= 0 ? 'up' : 'dn'}`}>
+          {c.changePct != null ? fmtPct(c.changePct) : '—'} 24h
+        </span>
+        <span className="comm-unit">{c.unit}</span>
+      </div>
       <div ref={ref} className="comm-spark" />
+      <div className="comm-hi-lo">
+        <div className="comm-hi-lo-row">
+          <span>52W</span>
+          <span>{c.weekLow52 != null ? `$${fmt(c.weekLow52, c.weekLow52 < 10 ? 3 : 2)} – $${fmt(c.weekHigh52, c.weekHigh52 < 10 ? 3 : 2)}` : '—'}</span>
+        </div>
+        <div className="comm-hi-lo-row">
+          <span>YTD</span>
+          <span style={{ color: ytdColor, fontWeight: 700 }}>{c.ytdPct != null ? fmtPct(c.ytdPct) : '—'}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function CommodityModal({ commodity, plotlyReady, onClose }) {
+  const ref = useRef(null);
+  const [tf, setTf] = useState('1y');
+  const [hist, setHist] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!commodity) return;
+    setLoading(true); setError(null);
+    fetch(`/data_pages/macro/commodity-history?symbol=${commodity.symbol}&tf=${tf}`)
+      .then((r) => r.json())
+      .then((j) => { if (j.error) throw new Error(j.error); setHist(j); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [commodity, tf]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!plotlyReady || !ref.current || !hist?.prices?.length) return;
+    const prices = hist.prices;
+    const dates = hist.dates;
+    const isUp = prices[prices.length - 1] >= prices[0];
+    const color = isUp ? '#00f59b' : '#ff3355';
+    window.Plotly.newPlot(ref.current, [{
+      type: 'scatter', mode: 'lines', x: dates, y: prices,
+      line: { color, width: 2, shape: 'spline' }, fill: 'tozeroy',
+      fillcolor: isUp ? 'rgba(0,245,155,0.08)' : 'rgba(255,51,85,0.08)',
+      hovertemplate: '%{x}<br>$%{y:.2f}<extra></extra>',
+    }], {
+      paper_bgcolor: '#0b0b10', plot_bgcolor: '#0b0b10',
+      xaxis: { color: '#7a7a90', gridcolor: '#1e1e28', linecolor: '#3a3a4d', tickfont: CHART_FONT },
+      yaxis: { color: '#7a7a90', gridcolor: '#1e1e28', linecolor: '#3a3a4d', tickfont: CHART_FONT },
+      margin: { l: 60, r: 20, t: 14, b: 40 }, showlegend: false,
+      hovermode: 'x unified', font: CHART_FONT,
+    }, { displayModeBar: false, responsive: true });
+  }, [plotlyReady, hist]);
+
+  if (!commodity) return null;
+  const ytdColor = commodity.ytdPct == null ? 'var(--smoke)' : commodity.ytdPct >= 0 ? '#00f59b' : '#ff3355';
+
+  return (
+    <div className="comm-modal-bd" onClick={onClose}>
+      <div className="comm-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="comm-modal-h">
+          <div>
+            <div className="comm-modal-title">{commodity.name}</div>
+            <div className="comm-modal-sub">
+              {commodity.symbol} · {commodity.unit} ·
+              <span style={{ color: '#cccce0', marginLeft: 6 }}>${commodity.price != null ? fmt(commodity.price, 2) : '—'}</span>
+              <span className={`comm-chg ${commodity.changePct >= 0 ? 'up' : 'dn'}`} style={{ marginLeft: 8 }}>
+                {commodity.changePct != null ? fmtPct(commodity.changePct) : '—'} 24h
+              </span>
+              <span style={{ marginLeft: 12, color: 'var(--smoke)' }}>YTD <b style={{ color: ytdColor }}>{commodity.ytdPct != null ? fmtPct(commodity.ytdPct) : '—'}</b></span>
+            </div>
+          </div>
+          <button className="comm-modal-x" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="comm-modal-tf">
+          {['1m', '3m', '6m', '1y', '5y'].map((t) => (
+            <button key={t} className={`mt ${tf === t ? 'a' : ''}`} onClick={() => setTf(t)}>{t.toUpperCase()}</button>
+          ))}
+        </div>
+        <div className="comm-modal-chart" ref={ref}>
+          {loading && <Load t={`Loading ${tf.toUpperCase()} history…`} />}
+          {error && <Err m={error} />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -176,6 +277,10 @@ export default function MacroDashboard() {
   const [mapTab, setMapTab] = useState('geo');
   const [yieldTab, setYieldTab] = useState('current');
   const [calTab, setCalTab] = useState('upcoming');
+  const [calFilter, setCalFilter] = useState({ impact: 'ALL', currency: 'ALL' });
+  const [fxTf, setFxTf] = useState('24h');
+  const [expandedComm, setExpandedComm] = useState(null);
+  const [now, setNow] = useState(Date.now());
   const [plotlyReady, setPlotlyReady] = useState(false);
   const [clock, setClock] = useState('');
   const [ld, setLd] = useState({});
@@ -194,12 +299,54 @@ export default function MacroDashboard() {
     return () => clearInterval(t);
   }, []);
 
-  // Live clock
+  // Live clock + countdown ticker
   useEffect(() => {
     setClock(fmtTime());
-    const t = setInterval(() => setClock(fmtTime()), 1000);
+    const t = setInterval(() => { setClock(fmtTime()); setNow(Date.now()); }, 1000);
     return () => clearInterval(t);
   }, []);
+
+  const nextHighImpact = useMemo(() => {
+    if (!calendar?.upcoming) return null;
+    return calendar.upcoming.find((e) => e.impact === 'High') || null;
+  }, [calendar]);
+
+  const filteredEvents = useMemo(() => {
+    if (!calendar) return [];
+    const src = calTab === 'upcoming' ? calendar.upcoming : calendar.recent;
+    return (src || []).filter((e) => {
+      if (calFilter.impact !== 'ALL' && e.impact !== calFilter.impact) return false;
+      if (calFilter.currency !== 'ALL' && e.currency !== calFilter.currency) return false;
+      return true;
+    });
+  }, [calendar, calTab, calFilter]);
+
+  const groupedEvents = useMemo(() => {
+    if (!filteredEvents.length) return [];
+    const groups = {};
+    for (const e of filteredEvents) {
+      const day = (e.date || '').slice(0, 10);
+      if (!groups[day]) groups[day] = [];
+      groups[day].push(e);
+    }
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+    const yest = new Date(); yest.setDate(yest.getDate() - 1);
+    const yestKey = yest.toISOString().slice(0, 10);
+    return Object.entries(groups)
+      .sort(([a], [b]) => calTab === 'upcoming' ? a.localeCompare(b) : b.localeCompare(a))
+      .map(([day, events]) => {
+        const d = new Date(day + 'T00:00:00');
+        const wd = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+        let label;
+        if (day === todayKey) label = `TODAY · ${wd}`;
+        else if (day === tomorrowKey) label = `TOMORROW · ${wd}`;
+        else if (day === yestKey) label = `YESTERDAY · ${wd}`;
+        else label = wd;
+        return { day, label, events };
+      });
+  }, [filteredEvents, calTab]);
 
   const fetchS = useCallback(async (k, url, set) => {
     setLd((s) => ({ ...s, [k]: true })); setEr((s) => ({ ...s, [k]: null }));
@@ -230,11 +377,11 @@ export default function MacroDashboard() {
     setTimeout(() => fetchS('fg', '/data_pages/macro/feargreed', setFeargreed), 1500);
   }, [fetchS]);
 
-  // Auto-refresh
+  // Auto-refresh (matches server cache TTLs to avoid burning FMP quota)
   useEffect(() => {
     const fl = setInterval(() => fetchS('flights', '/data_pages/macro/flights', setFlights), 60_000);
-    const f = setInterval(() => fetchS('fx', '/data_pages/macro/fx', setFx), 5 * 60_000);
-    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 10 * 60_000);
+    const f = setInterval(() => fetchS('fx', '/data_pages/macro/fx', setFx), 30 * 60_000);
+    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 60 * 60_000);
     return () => { clearInterval(fl); clearInterval(f); clearInterval(c); };
   }, [fetchS]);
 
@@ -518,6 +665,22 @@ export default function MacroDashboard() {
               {er.calendar && <Err m={er.calendar} />}
               {calendar && (
                 <>
+                  {nextHighImpact && (() => {
+                    const ms = new Date(nextHighImpact.date).getTime() - now;
+                    const past = ms < 0;
+                    const abs = Math.abs(ms);
+                    const d = Math.floor(abs / 86400000);
+                    const h = Math.floor((abs % 86400000) / 3600000);
+                    const m = Math.floor((abs % 3600000) / 60000);
+                    const s = Math.floor((abs % 60000) / 1000);
+                    return (
+                      <div className="ec-next">
+                        <div className="ec-next-l">{past ? 'JUST RELEASED' : 'NEXT HIGH-IMPACT'}</div>
+                        <div className="ec-next-event">{nextHighImpact.flag} {nextHighImpact.event}</div>
+                        <div className="ec-next-cd">{d > 0 ? `${d}D ` : ''}{String(h).padStart(2, '0')}H {String(m).padStart(2, '0')}M {String(s).padStart(2, '0')}S</div>
+                      </div>
+                    );
+                  })()}
                   <div className="ec-summary">
                     <div>
                       <div className="ec-summary-l">USD Surprise Index (Citi-style proxy)</div>
@@ -531,21 +694,44 @@ export default function MacroDashboard() {
                       <div>INLINE: <span style={{ color: 'var(--fog)' }}>{calendar.counts.inline}</span></div>
                     </div>
                   </div>
+                  <div className="ec-filters">
+                    <div className="ec-filter-row">
+                      <span className="ec-filter-l">IMPACT</span>
+                      {['ALL', 'High', 'Medium'].map((i) => (
+                        <button key={i} className={`mt ${calFilter.impact === i ? 'a' : ''}`} onClick={() => setCalFilter((f) => ({ ...f, impact: i }))}>{i}</button>
+                      ))}
+                    </div>
+                    <div className="ec-filter-row">
+                      <span className="ec-filter-l">CCY</span>
+                      {['ALL', 'USD', 'EUR', 'JPY', 'GBP', 'CNY', 'CAD', 'AUD', 'CHF'].map((c) => (
+                        <button key={c} className={`mt ${calFilter.currency === c ? 'a' : ''}`} onClick={() => setCalFilter((f) => ({ ...f, currency: c }))}>{c}</button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="ec-list">
-                    {(calTab === 'upcoming' ? calendar.upcoming : calendar.recent).slice(0, 25).map((e, i) => (
-                      <div key={i} className="ec-row">
-                        <span className="ec-date">{(e.date || '').slice(5, 16).replace('T', ' ')}</span>
-                        <div>
-                          <div className="ec-event">{e.flag} {e.event}</div>
-                          <div className="ec-event-c">{e.currency} · {e.impact}</div>
+                    {groupedEvents.length === 0 && <div className="loading" style={{ padding: 16 }}>No events match these filters.</div>}
+                    {groupedEvents.map(({ day, label, events }) => (
+                      <div key={day}>
+                        <div className="ec-day-h">
+                          <span>{label}</span>
+                          <span>{events.length} EVENT{events.length !== 1 ? 'S' : ''}</span>
                         </div>
-                        <div className="ec-vals">
-                          <span>EST {e.estimate ?? '—'}</span>
-                          {e.actual != null ? <span style={{ color: '#cccce0', fontSize: 11 }}>ACT {e.actual}</span> : <span>PRV {e.previous ?? '—'}</span>}
-                        </div>
-                        <span className={`ec-pill ${e.direction === 'beat' ? 'beat' : e.direction === 'miss' ? 'miss' : e.direction === 'inline' ? 'inline' : 'upcoming'}`}>
-                          {e.direction === 'pending' ? 'pending' : e.surprisePct != null ? (e.surprisePct >= 0 ? '+' : '') + e.surprisePct.toFixed(0) + '%' : '—'}
-                        </span>
+                        {events.map((e, i) => (
+                          <div key={`${day}-${i}`} className="ec-row">
+                            <span className="ec-date">{(e.date || '').slice(11, 16) || '—'}</span>
+                            <div>
+                              <div className="ec-event">{e.flag} {e.event}</div>
+                              <div className="ec-event-c">{e.currency} · {e.impact}</div>
+                            </div>
+                            <div className="ec-vals">
+                              <span>EST {e.estimate ?? '—'}</span>
+                              {e.actual != null ? <span style={{ color: '#cccce0', fontSize: 11 }}>ACT {e.actual}</span> : <span>PRV {e.previous ?? '—'}</span>}
+                            </div>
+                            <span className={`ec-pill ${e.direction === 'beat' ? 'beat' : e.direction === 'miss' ? 'miss' : e.direction === 'inline' ? 'inline' : 'upcoming'}`}>
+                              {e.direction === 'pending' ? 'pending' : e.surprisePct != null ? (e.surprisePct >= 0 ? '+' : '') + e.surprisePct.toFixed(0) + '%' : '—'}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>
@@ -588,7 +774,7 @@ export default function MacroDashboard() {
             <div className="msec-b">
               {ld.fx && !fx && <Load />}
               {er.fx && <Err m={er.fx} />}
-              {fx && <FXMatrix fx={fx} />}
+              {fx && <FXMatrix fx={fx} tf={fxTf} onTfChange={setFxTf} />}
             </div>
           </section>
         </div>
@@ -601,11 +787,17 @@ export default function MacroDashboard() {
             {er.commodities && <Err m={er.commodities} />}
             {commodities?.commodities && (
               <div className="comm-grid">
-                {commodities.commodities.map((c) => <CommodityCard key={c.symbol} c={c} plotlyReady={plotlyReady} />)}
+                {commodities.commodities.map((c) => (
+                  <CommodityCard key={c.symbol} c={c} plotlyReady={plotlyReady} onExpand={setExpandedComm} />
+                ))}
               </div>
             )}
           </div>
         </section>
+
+        {expandedComm && (
+          <CommodityModal commodity={expandedComm} plotlyReady={plotlyReady} onClose={() => setExpandedComm(null)} />
+        )}
 
         {/* ──────────── 7. GLOBAL FLOWS ──────────── */}
         <section className="msec fi">

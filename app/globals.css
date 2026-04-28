@@ -259,19 +259,72 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
 .fx-mc.diag{background:var(--graphite)!important;color:var(--ash)}
 
 /* ── Commodity Strip ─────────────────────────── */
-.comm-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.comm-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 @media(max-width:1300px){.comm-grid{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:600px){.comm-grid{grid-template-columns:repeat(2,1fr)}}
-.comm-card{padding:14px;background:var(--obsidian);border:1px solid rgba(56,56,78,.3);border-radius:var(--rs);transition:border-color .2s,transform .15s;display:flex;flex-direction:column;gap:6px;min-height:135px}
-.comm-card:hover{border-color:var(--border-h);transform:translateY(-1px)}
-.comm-name{font-family:var(--mono);font-size:9.5px;color:var(--ash);text-transform:uppercase;letter-spacing:1px}
-.comm-cat{font-family:var(--mono);font-size:8px;color:var(--neon-purple);background:var(--purple-dim);padding:2px 6px;border-radius:3px;letter-spacing:.5px;align-self:flex-start;text-transform:uppercase;margin-top:2px}
-.comm-price{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--white);letter-spacing:-.5px;line-height:1}
-.comm-chg{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;align-self:flex-start}
+@media(max-width:760px){.comm-grid{grid-template-columns:repeat(2,1fr)}}
+.comm-card{padding:14px 16px;background:var(--obsidian);border:1px solid rgba(56,56,78,.3);border-radius:var(--rs);transition:border-color .2s,transform .15s,box-shadow .2s;display:flex;flex-direction:column;gap:7px;min-height:200px;text-align:left;cursor:pointer;font:inherit;color:inherit;width:100%}
+.comm-card:hover{border-color:var(--neon-cyan);transform:translateY(-2px);box-shadow:0 4px 18px rgba(0,212,255,.08)}
+.comm-row-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.comm-row-mid{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.comm-name{font-family:var(--mono);font-size:10.5px;color:var(--cloud);text-transform:uppercase;letter-spacing:1px;font-weight:600}
+.comm-cat-tag{font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:3px;letter-spacing:.8px;text-transform:uppercase;font-weight:700}
+.comm-cat-tag.cat-energy{color:var(--neon-orange);background:rgba(255,136,51,.12)}
+.comm-cat-tag.cat-metal{color:var(--neon-cyan);background:var(--cyan-dim)}
+.comm-cat-tag.cat-agri{color:var(--neon-green);background:var(--green-dim)}
+.comm-cat-tag.cat-power{color:var(--neon-yellow);background:rgba(255,199,0,.12)}
+.comm-price{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--white);letter-spacing:-.5px;line-height:1}
+.comm-chg{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px}
 .comm-chg.up{color:var(--neon-green);background:var(--green-dim)}
 .comm-chg.dn{color:var(--neon-red);background:var(--red-dim)}
-.comm-spark{height:36px;width:100%;margin-top:auto}
-.comm-unit{font-family:var(--mono);font-size:9px;color:var(--smoke);letter-spacing:.3px}
+.comm-spark{height:64px;width:100%;margin-top:2px}
+.comm-unit{font-family:var(--mono);font-size:9.5px;color:var(--smoke);letter-spacing:.3px}
+.comm-hi-lo{border-top:1px solid rgba(56,56,78,.3);padding-top:7px;margin-top:auto;display:flex;flex-direction:column;gap:3px}
+.comm-hi-lo-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--ash);letter-spacing:.4px}
+.comm-hi-lo-row span:last-child{color:var(--mist);font-weight:600}
+
+/* ── Commodity Modal ─────────────────────────── */
+.comm-modal-bd{position:fixed;inset:0;background:rgba(5,5,8,.85);backdrop-filter:blur(8px);z-index:500;display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeUp .2s}
+.comm-modal-card{background:var(--onyx);border:1px solid var(--border-h);border-radius:var(--r);width:100%;max-width:780px;padding:0;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.comm-modal-h{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 22px 12px;border-bottom:1px solid var(--border);gap:16px}
+.comm-modal-title{font-size:18px;font-weight:700;color:var(--white);letter-spacing:-.3px}
+.comm-modal-sub{font-family:var(--mono);font-size:10.5px;color:var(--smoke);margin-top:4px;letter-spacing:.3px}
+.comm-modal-x{background:transparent;border:1px solid var(--border);color:var(--mist);width:30px;height:30px;border-radius:4px;cursor:pointer;font-size:14px;font-family:var(--mono);transition:all .15s}
+.comm-modal-x:hover{border-color:var(--neon-red);color:var(--neon-red)}
+.comm-modal-tf{padding:12px 22px 0;display:flex;gap:6px}
+.comm-modal-chart{height:540px;padding:16px 22px 22px;position:relative}
+
+/* ── Search hint chip (Terminal page) ───────── */
+.si-hint{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:9.5px;color:var(--neon-cyan);background:var(--cyan-dim);padding:3px 7px;border-radius:3px;letter-spacing:.5px;pointer-events:none;font-weight:600}
+
+/* ── Chart freshness pill (Terminal page) ───── */
+.chart-freshness{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:.5px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:var(--obsidian);margin-left:8px}
+.chart-freshness .fr-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.chart-freshness .fr-label{font-weight:700;letter-spacing:1px}
+.chart-freshness .fr-feed{color:var(--smoke);font-size:9px;letter-spacing:1px}
+.chart-freshness .fr-time{color:var(--cloud);font-size:9.5px}
+.chart-freshness.fr-open .fr-dot{background:var(--neon-green);box-shadow:0 0 8px var(--neon-green)}
+.chart-freshness.fr-open .fr-label{color:var(--neon-green)}
+.chart-freshness.fr-pre .fr-dot,.chart-freshness.fr-post .fr-dot{background:var(--neon-orange)}
+.chart-freshness.fr-pre .fr-label,.chart-freshness.fr-post .fr-label{color:var(--neon-orange)}
+.chart-freshness.fr-closed .fr-dot{background:var(--smoke)}
+.chart-freshness.fr-closed .fr-label{color:var(--smoke)}
+
+/* ── Calendar countdown + filters + day headers ── */
+.ec-next{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:linear-gradient(90deg,rgba(255,51,85,.08),rgba(255,136,51,.04));border:1px solid rgba(255,51,85,.18);border-radius:var(--rs);margin-bottom:10px;gap:14px;flex-wrap:wrap}
+.ec-next-l{font-family:var(--mono);font-size:9px;color:var(--neon-red);letter-spacing:1.5px;text-transform:uppercase;font-weight:700}
+.ec-next-event{font-family:var(--sans);font-size:14px;color:var(--white);font-weight:600;flex:1;min-width:140px}
+.ec-next-cd{font-family:var(--mono);font-size:18px;color:var(--neon-yellow);font-weight:700;letter-spacing:1px;font-variant-numeric:tabular-nums}
+.ec-filters{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.ec-filter-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.ec-filter-l{font-family:var(--mono);font-size:9px;color:var(--ash);letter-spacing:1.5px;margin-right:4px;min-width:48px}
+.ec-day-h{position:sticky;top:0;background:var(--obsidian);display:flex;justify-content:space-between;align-items:center;padding:6px 12px;font-family:var(--mono);font-size:9.5px;letter-spacing:1.5px;color:var(--neon-cyan);text-transform:uppercase;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:6px 0 4px;font-weight:700;z-index:2}
+.ec-day-h span:last-child{color:var(--smoke);font-weight:500;letter-spacing:.5px}
+
+/* ── FX matrix expansion (11 currencies, bigger cells) ── */
+.fx-mc{padding:14px 6px;font-size:13px;font-weight:700}
+.fx-mh{padding:8px 4px;font-size:11px}
+.fx-tf{display:flex;gap:5px;align-items:center}
+.fx-dxy{flex-wrap:wrap;gap:14px}
 
 /* ── Global Flows ────────────────────────────── */
 .flow-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:stretch}
