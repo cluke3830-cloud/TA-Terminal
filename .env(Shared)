@@ -4,6 +4,6 @@
 
 ALPACA_API_KEY=PKZW4TWJZTNU3ZDADCHRTBFDGI
 ALPACA_SECRET_KEY=1Jz7CY4HaW8cSjPrk2E5U8tDG5d3wyFVznq11UzRcEG
-FRED_API_KEY= cc85726117f4405f693f1d98fa4acd56   # Free: https://fred.stlouisfed.org/docs/api/api_key.html
+FRED_API_KEY= aa5390f7427c32878acfd81813b9c3a2   # Free: https://fred.stlouisfed.org/docs/api/api_key.html
 EIA_API_KEY= ZcFY92Pfbj4exKQd1q1noAstm6ZQuKsWuaRolv8T    # Free: https://www.eia.gov/opendata/register.php
 FMP_API_KEY=c14CIP39vQTNUu0OhKnOm1ZPg9jX74OV
