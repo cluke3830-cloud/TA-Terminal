@@ -1,9 +1,10 @@
 import './globals.css';
 import Script from 'next/script';
+import Nav from './components/Nav';
 
 export const metadata = {
-  title: 'Quantum Stock Terminal',
-  description: 'Live Heikin Ashi · IV Surfaces · Earnings · Analyst Targets',
+  title: 'Quantum Terminal · Equity + Macro',
+  description: 'Live Heikin Ashi · IV Surfaces · Earnings · Macro Intelligence',
 };
 
 export default function RootLayout({ children }) {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }) {
         <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
       </head>
       <body>
+        <Nav />
         {children}
         <Script src="https://cdn.plot.ly/plotly-2.30.0.min.js" strategy="afterInteractive" />
       </body>

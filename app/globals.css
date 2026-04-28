@@ -145,3 +145,141 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
 /* ── Footer ───────────────────────────────────── */
 .footer{text-align:center;padding:30px 28px;font-family:var(--mono);font-size:10px;color:var(--ash);border-top:1px solid var(--border);margin-top:40px;letter-spacing:.3px;line-height:1.8}
 .footer a{color:var(--neon-blue);text-decoration:none}.footer a:hover{text-decoration:underline}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/*  GLOBAL NAVIGATION                                                  */
+/* ═══════════════════════════════════════════════════════════════════ */
+.app-nav{display:flex;align-items:center;gap:0;background:var(--void);border-bottom:1px solid var(--graphite);padding:0 28px;height:38px;position:sticky;top:0;z-index:200;backdrop-filter:blur(12px)}
+.app-nav-brand{font-family:var(--sans);font-weight:800;font-size:12px;letter-spacing:1px;background:linear-gradient(135deg,var(--neon-cyan),var(--neon-green));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-right:24px;display:flex;align-items:center}
+.nav-link{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--ash);text-decoration:none;padding:0 18px;height:100%;display:flex;align-items:center;border-bottom:2px solid transparent;transition:color .15s,border-color .15s,background .15s;margin-bottom:-1px}
+.nav-link:hover{color:var(--mist);background:var(--obsidian)}
+.nav-link.active{color:var(--neon-cyan);border-bottom-color:var(--neon-cyan)}
+.app-nav-spacer{flex:1}
+.app-nav-tag{font-family:var(--mono);font-size:9px;color:var(--smoke);letter-spacing:1.5px;text-transform:uppercase;padding:3px 10px;border:1px solid var(--border);border-radius:3px;background:var(--obsidian)}
+@media(max-width:760px){.app-nav-tag{display:none}.app-nav{padding:0 14px}.nav-link{padding:0 12px;font-size:10px}}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/*  MACRO ANALYSIS PAGE                                                */
+/* ═══════════════════════════════════════════════════════════════════ */
+.macro-dash{max-width:1700px;margin:0 auto;padding:24px 28px 80px}
+.macro-hero{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px;gap:16px;flex-wrap:wrap}
+.macro-title{font-size:30px;font-weight:800;letter-spacing:-1px;color:var(--white)}
+.macro-title span{background:linear-gradient(135deg,var(--neon-cyan),var(--neon-purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.macro-sub{font-family:var(--mono);font-size:11px;color:var(--smoke);letter-spacing:.5px;margin-top:4px}
+.macro-strip{display:flex;gap:18px;flex-wrap:wrap}
+.macro-strip-i{font-family:var(--mono);font-size:11px}
+.macro-strip-l{color:var(--ash);text-transform:uppercase;letter-spacing:.8px;font-size:9px;margin-bottom:2px}
+.macro-strip-v{color:var(--white);font-weight:600;font-size:14px}
+
+.macro-g2{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px}
+.macro-g3{display:grid;grid-template-columns:1.4fr 1fr;gap:22px;margin-bottom:22px}
+@media(max-width:1100px){.macro-g2,.macro-g3{grid-template-columns:1fr}}
+
+/* ── Section Wrappers ────────────────────────── */
+.msec{background:var(--onyx);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:22px;display:flex;flex-direction:column}
+.msec-h{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--border);background:rgba(11,11,16,.4);gap:12px;flex-wrap:wrap}
+.msec-t{font-size:13px;font-weight:600;color:var(--mist);letter-spacing:.3px;display:flex;align-items:center;gap:10px}
+.msec-t-num{font-family:var(--mono);font-size:10px;color:var(--neon-cyan);background:var(--cyan-dim);padding:3px 7px;border-radius:3px;letter-spacing:1px}
+.msec-b{padding:18px;flex:1}
+.msec-actions{display:flex;align-items:center;gap:8px}
+
+/* ── Fear & Greed Gauge ──────────────────────── */
+.fg-wrap{display:grid;grid-template-columns:1fr 1.2fr;gap:24px;align-items:center}
+@media(max-width:900px){.fg-wrap{grid-template-columns:1fr}}
+.fg-gauge{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px 0}
+.fg-gauge svg{max-width:380px;width:100%;height:auto}
+.fg-score{font-family:var(--mono);font-size:54px;font-weight:700;letter-spacing:-2px;line-height:1}
+.fg-label{font-family:var(--mono);font-size:14px;font-weight:600;letter-spacing:3px;text-transform:uppercase;margin-top:6px}
+.fg-cmp{display:flex;flex-direction:column;gap:8px}
+.fg-row{display:grid;grid-template-columns:160px 1fr 70px 60px;gap:10px;align-items:center;padding:10px 12px;background:var(--obsidian);border:1px solid rgba(56,56,78,.3);border-radius:var(--rs)}
+.fg-row-n{font-family:var(--mono);font-size:11px;color:var(--cloud);font-weight:600}
+.fg-row-bar{height:6px;background:var(--graphite);border-radius:3px;overflow:hidden;position:relative}
+.fg-row-bar-f{height:100%;border-radius:3px;transition:width .6s ease}
+.fg-row-s{font-family:var(--mono);font-size:11px;font-weight:700;text-align:right}
+.fg-row-w{font-family:var(--mono);font-size:9px;color:var(--ash);text-align:right;letter-spacing:.5px}
+@media(max-width:600px){.fg-row{grid-template-columns:1fr}.fg-row-w,.fg-row-s{text-align:left}}
+
+/* ── World Map ───────────────────────────────── */
+.wmap-box{height:520px;width:100%;background:var(--void)}
+.wmap-tabs{display:inline-flex}
+.wmap-stats{display:flex;gap:18px;padding:10px 18px;border-top:1px solid var(--border);background:rgba(11,11,16,.3);font-family:var(--mono);font-size:10.5px;color:var(--smoke);flex-wrap:wrap}
+.wmap-stats b{color:var(--neon-cyan);font-weight:600;margin-left:6px}
+
+/* ── Central Bank Cards ──────────────────────── */
+.cb-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(max-width:600px){.cb-grid{grid-template-columns:1fr}}
+.cb-card{padding:12px 14px;background:var(--obsidian);border:1px solid rgba(56,56,78,.3);border-radius:var(--rs);transition:border-color .2s,transform .15s;display:flex;flex-direction:column;gap:6px}
+.cb-card:hover{border-color:var(--border-h);transform:translateY(-1px)}
+.cb-row{display:flex;align-items:center;justify-content:space-between}
+.cb-name{font-family:var(--mono);font-size:10px;color:var(--ash);letter-spacing:1px;text-transform:uppercase}
+.cb-flag{font-size:14px}
+.cb-rate{font-family:var(--mono);font-size:24px;font-weight:700;color:var(--white);letter-spacing:-.5px;line-height:1}
+.cb-trend{font-family:var(--mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase}
+.cb-trend.hike{background:var(--red-dim);color:var(--neon-red)}
+.cb-trend.cut{background:var(--green-dim);color:var(--neon-green)}
+.cb-trend.hold{background:var(--cyan-dim);color:var(--neon-cyan)}
+.cb-meet{font-family:var(--mono);font-size:9.5px;color:var(--smoke);letter-spacing:.3px;border-top:1px solid rgba(56,56,78,.3);padding-top:6px;margin-top:auto;display:flex;justify-content:space-between}
+.cb-meet b{color:var(--neon-yellow);font-weight:600}
+
+/* ── Economic Calendar ───────────────────────── */
+.ec-summary{padding:10px 14px;background:linear-gradient(90deg,rgba(0,212,255,.04),rgba(153,85,255,.04));border:1px solid rgba(0,212,255,.12);border-radius:var(--rs);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;font-family:var(--mono)}
+.ec-summary-l{font-size:10px;color:var(--smoke);text-transform:uppercase;letter-spacing:1px}
+.ec-summary-v{font-size:18px;font-weight:700;color:var(--neon-cyan)}
+.ec-list{display:flex;flex-direction:column;gap:6px;max-height:520px;overflow-y:auto;padding-right:4px}
+.ec-row{display:grid;grid-template-columns:64px 1fr auto auto;gap:10px;padding:9px 12px;background:var(--obsidian);border:1px solid rgba(56,56,78,.25);border-radius:var(--rs);align-items:center;transition:border-color .15s}
+.ec-row:hover{border-color:var(--border-h)}
+.ec-date{font-family:var(--mono);font-size:9.5px;color:var(--smoke);letter-spacing:.3px}
+.ec-event{font-size:11.5px;color:var(--cloud);line-height:1.3}
+.ec-event-c{font-family:var(--mono);font-size:9px;color:var(--ash);text-transform:uppercase;letter-spacing:.8px}
+.ec-vals{font-family:var(--mono);font-size:10.5px;color:var(--mist);text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.ec-vals span{color:var(--ash);font-size:9px}
+.ec-pill{font-family:var(--mono);font-size:9px;font-weight:700;padding:3px 7px;border-radius:3px;letter-spacing:.5px;text-transform:uppercase;min-width:54px;text-align:center}
+.ec-pill.beat{background:var(--green-dim);color:var(--neon-green)}
+.ec-pill.miss{background:var(--red-dim);color:var(--neon-red)}
+.ec-pill.inline{background:rgba(85,85,104,.15);color:var(--fog)}
+.ec-pill.upcoming{background:var(--cyan-dim);color:var(--neon-cyan)}
+
+/* ── Yield Curve ─────────────────────────────── */
+.yc-box{height:380px;width:100%}
+.yc-pills{display:flex;gap:8px;padding:10px 18px 0;flex-wrap:wrap}
+.yc-pill{font-family:var(--mono);font-size:10px;padding:4px 10px;background:var(--obsidian);border:1px solid var(--border);border-radius:3px;color:var(--mist);letter-spacing:.5px}
+.yc-pill b{color:var(--neon-cyan);margin-left:6px;font-weight:600}
+.yc-pill.inv{border-color:var(--neon-red);color:var(--neon-red)}
+.yc-pill.inv b{color:var(--neon-red)}
+
+/* ── FX Matrix ───────────────────────────────── */
+.fx-dxy{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:linear-gradient(90deg,rgba(0,212,255,.05),rgba(0,245,155,.03));border:1px solid rgba(0,212,255,.15);border-radius:var(--rs);margin-bottom:14px}
+.fx-dxy-l{font-family:var(--mono);font-size:10px;color:var(--smoke);text-transform:uppercase;letter-spacing:1.2px}
+.fx-dxy-v{font-family:var(--mono);font-size:24px;font-weight:700;color:var(--white)}
+.fx-dxy-c{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 8px;border-radius:3px}
+.fx-matrix{display:grid;grid-template-columns:50px repeat(8,1fr);gap:2px;font-family:var(--mono);font-size:10px}
+.fx-mh{padding:6px 4px;text-align:center;color:var(--ash);font-weight:600;letter-spacing:.5px;text-transform:uppercase;background:var(--obsidian);border-radius:3px}
+.fx-mc{padding:9px 4px;text-align:center;color:var(--white);font-weight:600;border-radius:3px;font-size:10.5px;transition:transform .12s}
+.fx-mc:hover{transform:scale(1.05);outline:1px solid var(--neon-cyan)}
+.fx-mc.diag{background:var(--graphite)!important;color:var(--ash)}
+
+/* ── Commodity Strip ─────────────────────────── */
+.comm-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+@media(max-width:1300px){.comm-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:600px){.comm-grid{grid-template-columns:repeat(2,1fr)}}
+.comm-card{padding:14px;background:var(--obsidian);border:1px solid rgba(56,56,78,.3);border-radius:var(--rs);transition:border-color .2s,transform .15s;display:flex;flex-direction:column;gap:6px;min-height:135px}
+.comm-card:hover{border-color:var(--border-h);transform:translateY(-1px)}
+.comm-name{font-family:var(--mono);font-size:9.5px;color:var(--ash);text-transform:uppercase;letter-spacing:1px}
+.comm-cat{font-family:var(--mono);font-size:8px;color:var(--neon-purple);background:var(--purple-dim);padding:2px 6px;border-radius:3px;letter-spacing:.5px;align-self:flex-start;text-transform:uppercase;margin-top:2px}
+.comm-price{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--white);letter-spacing:-.5px;line-height:1}
+.comm-chg{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;align-self:flex-start}
+.comm-chg.up{color:var(--neon-green);background:var(--green-dim)}
+.comm-chg.dn{color:var(--neon-red);background:var(--red-dim)}
+.comm-spark{height:36px;width:100%;margin-top:auto}
+.comm-unit{font-family:var(--mono);font-size:9px;color:var(--smoke);letter-spacing:.3px}
+
+/* ── Global Flows ────────────────────────────── */
+.flow-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:stretch}
+@media(max-width:1100px){.flow-grid{grid-template-columns:1fr}}
+.flow-map{height:380px;width:100%;background:var(--void);border-radius:var(--rs);overflow:hidden}
+.flow-sankey{height:380px;width:100%;background:var(--obsidian);border-radius:var(--rs);overflow:hidden}
+
+/* ── Macro Tabs ──────────────────────────────── */
+.mt{height:26px;padding:0 12px;font-family:var(--mono);font-size:10px;font-weight:500;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--smoke);cursor:pointer;transition:all .15s;letter-spacing:.5px;text-transform:uppercase}
+.mt:hover{border-color:var(--neon-cyan);color:var(--mist)}
+.mt.a{background:var(--neon-cyan);border-color:var(--neon-cyan);color:var(--void);font-weight:700}
