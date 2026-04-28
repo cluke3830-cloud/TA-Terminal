@@ -45,11 +45,41 @@ OpenSky Network and World Bank APIs need no key.
 
 ## 🖥️ Run Locally
 
+**1. Clone and enter the folder:**
+```bash
+git clone https://github.com/cluke3830-cloud/Taeheon-Terminal.git
+cd Taeheon-Terminal
+```
+
+**2. Install dependencies (first time only):**
 ```bash
 npm install
-cp .env.example .env.local   # then fill in your keys
-npm run dev                  # http://localhost:3000
 ```
+
+**3. Create your `.env` file** at the project root with all 5 keys:
+```
+ALPACA_API_KEY=your_alpaca_key
+ALPACA_SECRET_KEY=your_alpaca_secret
+FMP_API_KEY=your_fmp_key
+FRED_API_KEY=your_fred_key
+EIA_API_KEY=your_eia_key
+```
+
+**4. Start the dev server:**
+```bash
+npm run dev
+```
+
+Open **http://localhost:3000** in your browser.
+- `/` → Equity Terminal (Heikin Ashi, IV surfaces, earnings)
+- `/macro` → Macro Analysis (yields, FX, commodities, world map)
+
+If port 3000 is busy, run on another port:
+```bash
+npm run dev -- -p 3737
+```
+
+> **⚠ macOS / zsh tip:** Do NOT copy commands with inline `#` comments — zsh treats `#` as a literal character by default and will fail with `EINVALIDTAGNAME` or `Invalid project directory`. Either copy commands one line at a time, or run `setopt interactivecomments` once in your shell to enable comment parsing.
 
 ---
 
