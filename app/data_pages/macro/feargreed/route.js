@@ -92,10 +92,10 @@ export async function GET(request) {
   const origin = `${url.protocol}//${url.host}`;
 
   const [yields, fx, comm, banks] = await Promise.all([
-    safeFetch(origin, '/api/macro/yields'),
-    safeFetch(origin, '/api/macro/fx'),
-    safeFetch(origin, '/api/macro/commodities'),
-    safeFetch(origin, '/api/macro/centralbanks'),
+    safeFetch(origin, '/data_pages/macro/yields'),
+    safeFetch(origin, '/data_pages/macro/fx'),
+    safeFetch(origin, '/data_pages/macro/commodities'),
+    safeFetch(origin, '/data_pages/macro/centralbanks'),
   ]);
 
   // Approximate CPI YoY: FRED CPIAUCSL is index level. Use ~3% as fallback if missing.

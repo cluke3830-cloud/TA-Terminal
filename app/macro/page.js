@@ -217,24 +217,24 @@ export default function MacroDashboard() {
 
   // Initial fetches
   useEffect(() => {
-    fetchS('yields', '/api/macro/yields', setYields);
-    fetchS('banks', '/api/macro/centralbanks', setBanks);
-    fetchS('calendar', '/api/macro/calendar', setCalendar);
-    fetchS('commodities', '/api/macro/commodities', setCommodities);
-    fetchS('fx', '/api/macro/fx', setFx);
-    fetchS('flows', '/api/macro/flows', setFlows);
-    fetchS('flights', '/api/macro/flights', setFlights);
-    fetchS('geo', '/api/macro/geopolitical?view=risk', (d) => setGeoData(d.data));
-    fetchS('oil', '/api/macro/geopolitical?view=oil', (d) => setOilData(d.data));
+    fetchS('yields', '/data_pages/macro/yields', setYields);
+    fetchS('banks', '/data_pages/macro/centralbanks', setBanks);
+    fetchS('calendar', '/data_pages/macro/calendar', setCalendar);
+    fetchS('commodities', '/data_pages/macro/commodities', setCommodities);
+    fetchS('fx', '/data_pages/macro/fx', setFx);
+    fetchS('flows', '/data_pages/macro/flows', setFlows);
+    fetchS('flights', '/data_pages/macro/flights', setFlights);
+    fetchS('geo', '/data_pages/macro/geopolitical?view=risk', (d) => setGeoData(d.data));
+    fetchS('oil', '/data_pages/macro/geopolitical?view=oil', (d) => setOilData(d.data));
     // FearGreed last (depends on others, server-side aggregator)
-    setTimeout(() => fetchS('fg', '/api/macro/feargreed', setFeargreed), 1500);
+    setTimeout(() => fetchS('fg', '/data_pages/macro/feargreed', setFeargreed), 1500);
   }, [fetchS]);
 
   // Auto-refresh
   useEffect(() => {
-    const fl = setInterval(() => fetchS('flights', '/api/macro/flights', setFlights), 60_000);
-    const f = setInterval(() => fetchS('fx', '/api/macro/fx', setFx), 5 * 60_000);
-    const c = setInterval(() => fetchS('commodities', '/api/macro/commodities', setCommodities), 10 * 60_000);
+    const fl = setInterval(() => fetchS('flights', '/data_pages/macro/flights', setFlights), 60_000);
+    const f = setInterval(() => fetchS('fx', '/data_pages/macro/fx', setFx), 5 * 60_000);
+    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 10 * 60_000);
     return () => { clearInterval(fl); clearInterval(f); clearInterval(c); };
   }, [fetchS]);
 

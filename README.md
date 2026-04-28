@@ -83,8 +83,8 @@ app/
 ├── components/
 │   ├── Nav.js               # Shared TERMINAL ↔ MACRO navigation
 │   └── ui.js                # Shared Load/Err/fmt utilities
-├── api/
-│   ├── stock/options/...    # Equity API routes (Alpaca + FMP)
+├── data_pages/              # Server-side route handlers (Next.js route.js)
+│   ├── stock/options/...    # Equity routes (Alpaca + FMP)
 │   └── macro/
 │       ├── yields/          # FRED Treasury curve
 │       ├── centralbanks/    # Policy rates + FMP calendar

@@ -103,7 +103,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (q.length < 1) { setSR([]); return; }
     const t = setTimeout(async () => {
-      try { const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`); const d = await r.json(); setSR(d.results || []); setDD(true); } catch { setSR([]); }
+      try { const r = await fetch(`/data_pages/search?q=${encodeURIComponent(q)}`); const d = await r.json(); setSR(d.results || []); setDD(true); } catch { setSR([]); }
     }, 250);
     return () => clearTimeout(t);
   }, [q]);
@@ -117,19 +117,19 @@ export default function Dashboard() {
   }, []);
 
   const fetchAll = useCallback((s, t) => {
-    fetchS('stock', `/api/stock?symbol=${s}&timeframe=${t}&days=5`, setStock);
-    fetchS('earn', `/api/earnings?symbol=${s}`, setEarn);
-    fetchS('fin', `/api/financials?symbol=${s}`, setFin);
-    fetchS('opts', `/api/options?symbol=${s}`, setOpts);
-    fetchS('fc', `/api/forecast?symbol=${s}`, setFc);
+    fetchS('stock', `/data_pages/stock?symbol=${s}&timeframe=${t}&days=5`, setStock);
+    fetchS('earn', `/data_pages/earnings?symbol=${s}`, setEarn);
+    fetchS('fin', `/data_pages/financials?symbol=${s}`, setFin);
+    fetchS('opts', `/data_pages/options?symbol=${s}`, setOpts);
+    fetchS('fc', `/data_pages/forecast?symbol=${s}`, setFc);
   }, [fetchS]);
 
   useEffect(() => { fetchAll(sym, tf); }, [sym, tf, fetchAll]);
 
   // Auto-refresh 60s
   useEffect(() => {
-    const i1 = setInterval(() => fetchS('stock', `/api/stock?symbol=${sym}&timeframe=${tf}&days=5`, setStock), 60000);
-    const i2 = setInterval(() => fetchS('opts', `/api/options?symbol=${sym}`, setOpts), 60000);
+    const i1 = setInterval(() => fetchS('stock', `/data_pages/stock?symbol=${sym}&timeframe=${tf}&days=5`, setStock), 60000);
+    const i2 = setInterval(() => fetchS('opts', `/data_pages/options?symbol=${sym}`, setOpts), 60000);
     return () => { clearInterval(i1); clearInterval(i2); };
   }, [sym, tf, fetchS]);
 
