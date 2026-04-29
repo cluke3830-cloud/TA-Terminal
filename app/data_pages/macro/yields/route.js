@@ -14,17 +14,17 @@ const SERIES = [
 ];
 
 async function fredLatest(seriesId, key, anchorDate = null) {
+  // Limit bumped to 90 — DGS3MO/DGS6MO have intermittent gaps and a small
+  // window can return all "." entries for the anchor date.
   const params = new URLSearchParams({
     series_id: seriesId,
     api_key: key,
     file_type: 'json',
     sort_order: 'desc',
-    limit: '20',
+    limit: '90',
   });
   if (anchorDate) {
     params.set('observation_end', anchorDate);
-    params.set('sort_order', 'desc');
-    params.set('limit', '20');
   }
   const url = `https://api.stlouisfed.org/fred/series/observations?${params}`;
   const r = await fetch(url, { cache: 'no-store' });

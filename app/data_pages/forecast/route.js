@@ -1,68 +1,115 @@
 export const dynamic = 'force-dynamic';
 
 import { getCached, setCache } from '../_cache';
+import YahooFinance from 'yahoo-finance2';
+
+const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const FMP = 'https://financialmodelingprep.com/stable';
 
-async function fmpGet(url) {
+function num(v) { return v?.raw ?? (typeof v === 'number' ? v : null); }
+
+async function fmpForecast(symbol, key) {
+  if (!key) return null;
+  const get = async (path) => {
+    try {
+      const r = await fetch(`${FMP}/${path}${path.includes('?') ? '&' : '?'}apikey=${key}`);
+      if (!r.ok) return null;
+      const j = await r.json();
+      if (j?.['Error Message']) return null;
+      return j;
+    } catch { return null; }
+  };
+  const [targetSummary, grades, news] = await Promise.all([
+    get(`price-target-summary?symbol=${symbol}`),
+    get(`grades-consensus?symbol=${symbol}`),
+    get(`stock-news?tickers=${symbol}&limit=5`),
+  ]);
+  const first = (d) => (Array.isArray(d) ? d[0] || null : d || null);
+  const summary = first(targetSummary);
+  const gradesData = first(grades);
+  if (!summary && !gradesData && !(Array.isArray(news) && news.length)) return null;
+
+  const targets = summary ? {
+    targetHigh: summary.lastMonthAvgPriceTarget || null,
+    targetLow: summary.allTimeAvgPriceTarget || null,
+    targetMedian: summary.lastQuarterAvgPriceTarget || null,
+    targetMean: summary.lastYearAvgPriceTarget || null,
+    numberOfAnalysts: summary.lastYearCount || null,
+  } : null;
+
+  const upgrades = gradesData ? {
+    strongBuy: gradesData.strongBuy || 0,
+    buy: gradesData.buy || 0,
+    hold: gradesData.hold || 0,
+    sell: gradesData.sell || 0,
+    strongSell: gradesData.strongSell || 0,
+    consensus: gradesData.consensus || null,
+  } : null;
+
+  return { targets, upgrades, news: Array.isArray(news) ? news.slice(0, 5) : [] };
+}
+
+async function yahooForecast(symbol) {
+  const m = await yahoo.quoteSummary(symbol, {
+    modules: ['financialData', 'recommendationTrend', 'upgradeDowngradeHistory'],
+  }).catch(() => null);
+
+  const fd = m?.financialData;
+  const targets = fd ? {
+    targetHigh: num(fd.targetHighPrice),
+    targetLow: num(fd.targetLowPrice),
+    targetMedian: num(fd.targetMedianPrice),
+    targetMean: num(fd.targetMeanPrice),
+    numberOfAnalysts: num(fd.numberOfAnalystOpinions),
+  } : null;
+
+  const trend = m?.recommendationTrend?.trend?.[0];
+  const upgrades = trend ? {
+    strongBuy: trend.strongBuy || 0,
+    buy: trend.buy || 0,
+    hold: trend.hold || 0,
+    sell: trend.sell || 0,
+    strongSell: trend.strongSell || 0,
+    consensus: null,
+  } : null;
+
+  // Yahoo news (separate endpoint)
+  let news = [];
   try {
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    return await r.json();
-  } catch { return null; }
+    const search = await yahoo.search(symbol, { newsCount: 5, quotesCount: 0 });
+    news = (search?.news || []).slice(0, 5).map((n) => ({
+      title: n.title,
+      url: n.link,
+      site: n.publisher,
+      publishedDate: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString().slice(0, 10) : null,
+    }));
+  } catch (_) { /* skip news */ }
+
+  if (!targets && !upgrades && news.length === 0) return null;
+  return { targets, upgrades, news };
 }
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get('symbol') || 'NVDA').toUpperCase();
-  const key = process.env.FMP_API_KEY;
-  if (!key) return Response.json({ error: 'FMP_API_KEY not set' }, { status: 500 });
 
   const cacheKey = `fc:${symbol}`;
   const cached = getCached(cacheKey);
   if (cached) return Response.json(cached);
 
-  try {
-    const [targetSummary, grades, news] = await Promise.all([
-      fmpGet(`${FMP}/price-target-summary?symbol=${symbol}&apikey=${key}`),
-      fmpGet(`${FMP}/grades-consensus?symbol=${symbol}&apikey=${key}`),
-      fmpGet(`${FMP}/stock-news?tickers=${symbol}&limit=5&apikey=${key}`),
-    ]);
-
-    const first = d => (Array.isArray(d) ? d[0] || null : d || null);
-
-    // Build targets from price-target-summary (free tier compatible)
-    let targets = null;
-    const summary = first(targetSummary);
-
-    if (summary) {
-      targets = {
-        targetHigh: summary.lastMonthAvgPriceTarget || null,
-        targetLow: summary.allTimeAvgPriceTarget || null,
-        targetMedian: summary.lastQuarterAvgPriceTarget || null,
-        targetMean: summary.lastYearAvgPriceTarget || null,
-        numberOfAnalysts: summary.lastYearCount || null,
-      };
-    }
-
-    // Map grades-consensus
-    const gradesData = first(grades);
-    const upgrades = gradesData ? {
-      strongBuy: gradesData.strongBuy || 0,
-      buy: gradesData.buy || 0,
-      hold: gradesData.hold || 0,
-      sell: gradesData.sell || 0,
-      strongSell: gradesData.strongSell || 0,
-      consensus: gradesData.consensus || null,
-    } : null;
-
-    // Use stock-news, or empty if not available on free tier
-    const newsData = Array.isArray(news) && news.length > 0 ? news : [];
-
-    const result = { targets, upgrades, news: newsData.slice(0, 5) };
-    setCache(cacheKey, result);
-    return Response.json(result);
-  } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 });
+  let result = null;
+  let source = 'fmp';
+  try { result = await fmpForecast(symbol, process.env.FMP_API_KEY); } catch (_) {}
+  if (!result) {
+    try { result = await yahooForecast(symbol); source = 'yahoo'; } catch (_) {}
   }
+  if (!result) {
+    const empty = { targets: null, upgrades: null, news: [], source: 'unavailable' };
+    setCache(cacheKey, empty, 5 * 60 * 1000);
+    return Response.json(empty);
+  }
+  result.source = source;
+  setCache(cacheKey, result, 60 * 60 * 1000);
+  return Response.json(result);
 }

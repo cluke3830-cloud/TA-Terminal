@@ -1,25 +1,13 @@
 import { getCached, setCache } from '../../_cache';
 
 // Frankfurter API: free, unlimited, no key, ECB daily fixings.
-// Docs: https://www.frankfurter.dev
-//
-// Why this beats FMP for FX: a complete 10-currency, 4-date snapshot is
-// just 4 HTTP calls vs ~30 FMP calls, and there's no daily quota.
-// Trade-off: ECB doesn't publish weekend/holiday rates; the API returns
-// the most recent business day's rate, so weekend "24h change" is
-// actually Fri→Mon. Acceptable for a strength matrix.
+// Strategy: fetch a single 45-day time series, then pick anchor dates from
+// the actual data. This avoids the trap where today's UTC date == latest
+// fixing date (ECB publishes ~16:00 CET, so for several hours each day the
+// "latest" rate IS today's date and asking for "1 day ago" returns the same).
 
 const CURR = ['USD', 'EUR', 'JPY', 'GBP', 'CNY', 'AUD', 'CAD', 'CHF', 'NZD', 'MXN', 'KRW'];
 const NON_USD = CURR.filter((c) => c !== 'USD');
-
-async function frankfurterAt(date, symbols) {
-  // date: 'YYYY-MM-DD' or 'latest'
-  const url = `https://api.frankfurter.dev/v1/${date}?base=USD&symbols=${symbols.join(',')}`;
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(`Frankfurter ${date}: ${r.status}`);
-  const j = await r.json();
-  return { date: j.date, rates: j.rates || {} };
-}
 
 function isoDaysAgo(days) {
   const d = new Date();
@@ -27,8 +15,34 @@ function isoDaysAgo(days) {
   return d.toISOString().slice(0, 10);
 }
 
-// Pct change of currency C vs USD over the window.
-// Frankfurter rates are 1 USD = X C. If X drops, C strengthened vs USD.
+async function fetchSeries(start, symbols) {
+  const url = `https://api.frankfurter.dev/v1/${start}..?base=USD&symbols=${symbols.join(',')}`;
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`Frankfurter timeseries: ${r.status}`);
+  const j = await r.json();
+  if (!j.rates) throw new Error('Frankfurter: no rates in response');
+  // j.rates is { 'YYYY-MM-DD': { CCY: rate, ... }, ... }
+  return Object.entries(j.rates)
+    .map(([date, rates]) => ({ date, rates }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Pick the rate snapshot that's closest to (latestDate - daysBack) but strictly older.
+function pickAnchor(series, latestDate, daysBack) {
+  const target = new Date(`${latestDate}T00:00:00Z`);
+  target.setUTCDate(target.getUTCDate() - daysBack);
+  const targetIso = target.toISOString().slice(0, 10);
+  // Find the most recent series entry whose date <= targetIso.
+  let best = null;
+  for (const entry of series) {
+    if (entry.date <= targetIso) best = entry;
+    else break;
+  }
+  return best || series[0];
+}
+
+// Pct change of currency C vs USD over the window. Frankfurter rates are
+// 1 USD = X C; if X drops, C strengthened vs USD.
 // Returns: positive number = C strengthened relative to USD over window.
 function currencyVsUsdPct(latestRates, priorRates) {
   const out = { USD: 0 };
@@ -36,7 +50,6 @@ function currencyVsUsdPct(latestRates, priorRates) {
     const lr = latestRates[c];
     const pr = priorRates[c];
     if (lr == null || pr == null || pr === 0) { out[c] = null; continue; }
-    // C/USD change = (1/lr - 1/pr) / (1/pr) = (pr - lr) / lr
     out[c] = +(((pr - lr) / lr) * 100).toFixed(3);
   }
   return out;
@@ -62,18 +75,17 @@ export async function GET() {
   if (cached) return Response.json(cached);
 
   try {
-    // Frankfurter rolls weekend/holiday queries forward to the most recent
-    // business day, so we ask for slightly larger windows to be safe.
-    const [latest, d1, d7, d30] = await Promise.all([
-      frankfurterAt('latest', NON_USD),
-      frankfurterAt(isoDaysAgo(1), NON_USD),
-      frankfurterAt(isoDaysAgo(7), NON_USD),
-      frankfurterAt(isoDaysAgo(30), NON_USD),
-    ]);
+    // Fetch 45 days back so we always have anchors for 1m + buffer
+    const series = await fetchSeries(isoDaysAgo(45), NON_USD);
+    if (series.length === 0) throw new Error('Frankfurter returned empty series');
 
-    const usdRates = { USD: 1, ...latest.rates }; // 1 USD = X C
+    const latest = series[series.length - 1];
+    const a24h = pickAnchor(series, latest.date, 1);  // most recent strictly older entry
+    const a1w  = pickAnchor(series, latest.date, 7);
+    const a1m  = pickAnchor(series, latest.date, 30);
 
-    // Spot cross-rates: 1 A = (rate_USD_B / rate_USD_A) units of B
+    const usdRates = { USD: 1, ...latest.rates };
+
     const valuesMatrix = {};
     for (const a of CURR) {
       valuesMatrix[a] = {};
@@ -84,10 +96,9 @@ export async function GET() {
       }
     }
 
-    // Per-currency % change vs USD over each window
-    const chg24h = currencyVsUsdPct(latest.rates, d1.rates);
-    const chg1w  = currencyVsUsdPct(latest.rates, d7.rates);
-    const chg1m  = currencyVsUsdPct(latest.rates, d30.rates);
+    const chg24h = currencyVsUsdPct(latest.rates, a24h.rates);
+    const chg1w  = currencyVsUsdPct(latest.rates, a1w.rates);
+    const chg1m  = currencyVsUsdPct(latest.rates, a1m.rates);
 
     const matrices = {
       '24h': buildMatrix(CURR, chg24h),
@@ -95,33 +106,30 @@ export async function GET() {
       '1m':  buildMatrix(CURR, chg1m),
     };
 
-    // DXY via official ICE formula. Need EUR/USD, USD/JPY, GBP/USD,
-    // USD/CAD, USD/SEK, USD/CHF — request SEK separately if not in main pull.
-    let sekRate = usdRates.SEK;
-    if (!sekRate) {
-      try {
-        const sek = await frankfurterAt('latest', ['SEK']);
-        sekRate = sek.rates.SEK;
-      } catch (_) { /* leave null */ }
-    }
-
     let dxy = null;
-    if (usdRates.EUR && usdRates.JPY && usdRates.GBP && usdRates.CAD && sekRate && usdRates.CHF) {
-      const eurUsd = 1 / usdRates.EUR;
-      const gbpUsd = 1 / usdRates.GBP;
-      dxy = 50.14348112
-        * Math.pow(eurUsd, -0.576)
-        * Math.pow(usdRates.JPY, 0.136)
-        * Math.pow(gbpUsd, -0.119)
-        * Math.pow(usdRates.CAD, 0.091)
-        * Math.pow(sekRate, 0.042)
-        * Math.pow(usdRates.CHF, 0.036);
-      dxy = +dxy.toFixed(2);
+    if (usdRates.EUR && usdRates.JPY && usdRates.GBP && usdRates.CAD && usdRates.CHF) {
+      // Need SEK for the official basket; fetch separately if not in main pull.
+      let sekRate = usdRates.SEK;
+      if (!sekRate) {
+        try {
+          const sekSeries = await fetchSeries(isoDaysAgo(7), ['SEK']);
+          sekRate = sekSeries[sekSeries.length - 1]?.rates?.SEK;
+        } catch (_) { /* skip DXY */ }
+      }
+      if (sekRate) {
+        const eurUsd = 1 / usdRates.EUR;
+        const gbpUsd = 1 / usdRates.GBP;
+        dxy = 50.14348112
+          * Math.pow(eurUsd, -0.576)
+          * Math.pow(usdRates.JPY, 0.136)
+          * Math.pow(gbpUsd, -0.119)
+          * Math.pow(usdRates.CAD, 0.091)
+          * Math.pow(sekRate, 0.042)
+          * Math.pow(usdRates.CHF, 0.036);
+        dxy = +dxy.toFixed(2);
+      }
     }
 
-    // DXY 24h change: -USD's net move vs the basket. USD = 0 in our convention,
-    // so use the negative weighted-average move of basket currencies vs USD.
-    // Simple proxy: -EUR move (EUR is dominant in DXY).
     const dxyChange24h = chg24h.EUR != null ? -chg24h.EUR : 0;
 
     const data = {
@@ -129,11 +137,11 @@ export async function GET() {
       matrices,
       values: valuesMatrix,
       usdRates,
-      pairChanges: chg24h, // back-compat field used by Fear & Greed aggregator
+      pairChanges: chg24h,
       dxy,
       dxyChange24h: +dxyChange24h.toFixed(2),
+      anchors: { latest: latest.date, '24h': a24h.date, '1w': a1w.date, '1m': a1m.date },
       source: 'frankfurter (ECB)',
-      asOf: latest.date,
       lastUpdated: new Date().toISOString(),
     };
     setCache('macro:fx', data, 30 * 60 * 1000);
