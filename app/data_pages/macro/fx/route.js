@@ -1,86 +1,57 @@
 import { getCached, setCache } from '../../_cache';
 
+// Frankfurter API: free, unlimited, no key, ECB daily fixings.
+// Docs: https://www.frankfurter.dev
+//
+// Why this beats FMP for FX: a complete 10-currency, 4-date snapshot is
+// just 4 HTTP calls vs ~30 FMP calls, and there's no daily quota.
+// Trade-off: ECB doesn't publish weekend/holiday rates; the API returns
+// the most recent business day's rate, so weekend "24h change" is
+// actually Fri→Mon. Acceptable for a strength matrix.
+
 const CURR = ['USD', 'EUR', 'JPY', 'GBP', 'CNY', 'AUD', 'CAD', 'CHF', 'NZD', 'MXN', 'KRW'];
+const NON_USD = CURR.filter((c) => c !== 'USD');
 
-async function fmpFx(symbol, key) {
-  try {
-    const r = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return Array.isArray(j) && j[0] ? j[0] : null;
-  } catch (_) { return null; }
+async function frankfurterAt(date, symbols) {
+  // date: 'YYYY-MM-DD' or 'latest'
+  const url = `https://api.frankfurter.dev/v1/${date}?base=USD&symbols=${symbols.join(',')}`;
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`Frankfurter ${date}: ${r.status}`);
+  const j = await r.json();
+  return { date: j.date, rates: j.rates || {} };
 }
 
-async function fmpFxHistory(symbol, key) {
-  try {
-    const r = await fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = await r.json();
-    if (!Array.isArray(j)) return null;
-    return j
-      .map((p) => ({ date: p.date, price: p.price ?? p.close }))
-      .filter((p) => p.date && p.price != null)
-      .sort((a, b) => a.date.localeCompare(b.date));
-  } catch (_) { return null; }
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
 }
 
-async function getRate(base, quote, key, cache) {
-  if (base === quote) return 1;
-  const k = `${base}${quote}`;
-  if (cache[k] != null) return cache[k];
-  const direct = await fmpFx(`${base}${quote}`, key);
-  if (direct?.price) {
-    cache[k] = direct.price;
-    cache[`${quote}${base}`] = 1 / direct.price;
-    return direct.price;
+// Pct change of currency C vs USD over the window.
+// Frankfurter rates are 1 USD = X C. If X drops, C strengthened vs USD.
+// Returns: positive number = C strengthened relative to USD over window.
+function currencyVsUsdPct(latestRates, priorRates) {
+  const out = { USD: 0 };
+  for (const c of NON_USD) {
+    const lr = latestRates[c];
+    const pr = priorRates[c];
+    if (lr == null || pr == null || pr === 0) { out[c] = null; continue; }
+    // C/USD change = (1/lr - 1/pr) / (1/pr) = (pr - lr) / lr
+    out[c] = +(((pr - lr) / lr) * 100).toFixed(3);
   }
-  const inv = await fmpFx(`${quote}${base}`, key);
-  if (inv?.price) {
-    cache[k] = 1 / inv.price;
-    cache[`${quote}${base}`] = inv.price;
-    return cache[k];
-  }
-  return null;
+  return out;
 }
 
-// For non-USD currency C, return USD/C % change over `days` calendar days back.
-// Positive number = USD strengthened vs C over the window (i.e. C weakened).
-async function pctChange(currency, days, key) {
-  if (currency === 'USD') return 0;
-  // Try USD{C}; if missing, fall back to {C}USD inverted.
-  let hist = await fmpFxHistory(`USD${currency}`, key);
-  let inverted = false;
-  if (!hist || hist.length < 2) {
-    hist = await fmpFxHistory(`${currency}USD`, key);
-    inverted = true;
-  }
-  if (!hist || hist.length < 2) return null;
-
-  const last = hist[hist.length - 1].price;
-  // Find a price at least `days` calendar days before the latest sample.
-  const lastDate = new Date(hist[hist.length - 1].date);
-  const targetDate = new Date(lastDate.getTime() - days * 864e5);
-  let prior = null;
-  for (let i = hist.length - 1; i >= 0; i--) {
-    if (new Date(hist[i].date) <= targetDate) { prior = hist[i].price; break; }
-  }
-  if (prior == null) prior = hist[0].price;
-  if (!prior) return null;
-
-  const raw = ((last - prior) / prior) * 100;
-  return inverted ? -raw : raw; // {C}USD up means C strengthened, USD weakened.
-}
-
-function buildMatrix(currencies, pairChanges) {
+function buildMatrix(currencies, currencyChanges) {
   const matrix = {};
   for (const a of currencies) {
     matrix[a] = {};
     for (const b of currencies) {
       if (a === b) { matrix[a][b] = 0; continue; }
-      const aChg = a === 'USD' ? 0 : -(pairChanges[a] ?? 0); // a vs USD
-      const bChg = b === 'USD' ? 0 : -(pairChanges[b] ?? 0);
-      const v = pairChanges[a] == null || pairChanges[b] == null ? null : aChg - bChg;
-      matrix[a][b] = v != null ? +v.toFixed(2) : null;
+      const aChg = currencyChanges[a];
+      const bChg = currencyChanges[b];
+      if (aChg == null || bChg == null) { matrix[a][b] = null; continue; }
+      matrix[a][b] = +(aChg - bChg).toFixed(2);
     }
   }
   return matrix;
@@ -90,17 +61,19 @@ export async function GET() {
   const cached = getCached('macro:fx');
   if (cached) return Response.json(cached);
 
-  const KEY = process.env.FMP_API_KEY;
-  if (!KEY) return Response.json({ error: 'FMP_API_KEY not configured' }, { status: 500 });
-
   try {
-    const rateCache = {};
-    const usdRates = { USD: 1 };
-    await Promise.all(CURR.filter((c) => c !== 'USD').map(async (c) => {
-      usdRates[c] = await getRate('USD', c, KEY, rateCache);
-    }));
-    if (!usdRates.SEK) usdRates.SEK = await getRate('USD', 'SEK', KEY, rateCache);
+    // Frankfurter rolls weekend/holiday queries forward to the most recent
+    // business day, so we ask for slightly larger windows to be safe.
+    const [latest, d1, d7, d30] = await Promise.all([
+      frankfurterAt('latest', NON_USD),
+      frankfurterAt(isoDaysAgo(1), NON_USD),
+      frankfurterAt(isoDaysAgo(7), NON_USD),
+      frankfurterAt(isoDaysAgo(30), NON_USD),
+    ]);
 
+    const usdRates = { USD: 1, ...latest.rates }; // 1 USD = X C
+
+    // Spot cross-rates: 1 A = (rate_USD_B / rate_USD_A) units of B
     const valuesMatrix = {};
     for (const a of CURR) {
       valuesMatrix[a] = {};
@@ -111,35 +84,29 @@ export async function GET() {
       }
     }
 
-    // 24h pairChanges from quote.changesPercentage
-    const pairChanges24h = {};
-    await Promise.all(CURR.filter((c) => c !== 'USD').map(async (c) => {
-      const q = await fmpFx(`USD${c}`, KEY);
-      if (q && q.changesPercentage != null) {
-        pairChanges24h[c] = +q.changesPercentage.toFixed(3);
-      } else {
-        const inv = await fmpFx(`${c}USD`, KEY);
-        if (inv && inv.changesPercentage != null) pairChanges24h[c] = -inv.changesPercentage;
-        else pairChanges24h[c] = null;
-      }
-    }));
-
-    // 1W and 1M from historical
-    const pairChanges1w = {};
-    const pairChanges1m = {};
-    await Promise.all(CURR.filter((c) => c !== 'USD').map(async (c) => {
-      pairChanges1w[c] = await pctChange(c, 7, KEY);
-      pairChanges1m[c] = await pctChange(c, 30, KEY);
-    }));
+    // Per-currency % change vs USD over each window
+    const chg24h = currencyVsUsdPct(latest.rates, d1.rates);
+    const chg1w  = currencyVsUsdPct(latest.rates, d7.rates);
+    const chg1m  = currencyVsUsdPct(latest.rates, d30.rates);
 
     const matrices = {
-      '24h': buildMatrix(CURR, pairChanges24h),
-      '1w':  buildMatrix(CURR, pairChanges1w),
-      '1m':  buildMatrix(CURR, pairChanges1m),
+      '24h': buildMatrix(CURR, chg24h),
+      '1w':  buildMatrix(CURR, chg1w),
+      '1m':  buildMatrix(CURR, chg1m),
     };
 
+    // DXY via official ICE formula. Need EUR/USD, USD/JPY, GBP/USD,
+    // USD/CAD, USD/SEK, USD/CHF — request SEK separately if not in main pull.
+    let sekRate = usdRates.SEK;
+    if (!sekRate) {
+      try {
+        const sek = await frankfurterAt('latest', ['SEK']);
+        sekRate = sek.rates.SEK;
+      } catch (_) { /* leave null */ }
+    }
+
     let dxy = null;
-    if (usdRates.EUR && usdRates.JPY && usdRates.GBP && usdRates.CAD && usdRates.SEK && usdRates.CHF) {
+    if (usdRates.EUR && usdRates.JPY && usdRates.GBP && usdRates.CAD && sekRate && usdRates.CHF) {
       const eurUsd = 1 / usdRates.EUR;
       const gbpUsd = 1 / usdRates.GBP;
       dxy = 50.14348112
@@ -147,26 +114,31 @@ export async function GET() {
         * Math.pow(usdRates.JPY, 0.136)
         * Math.pow(gbpUsd, -0.119)
         * Math.pow(usdRates.CAD, 0.091)
-        * Math.pow(usdRates.SEK, 0.042)
+        * Math.pow(sekRate, 0.042)
         * Math.pow(usdRates.CHF, 0.036);
       dxy = +dxy.toFixed(2);
     }
 
-    const dxyChange24h = matrices['24h'].USD?.EUR != null ? -matrices['24h'].USD.EUR : 0;
+    // DXY 24h change: -USD's net move vs the basket. USD = 0 in our convention,
+    // so use the negative weighted-average move of basket currencies vs USD.
+    // Simple proxy: -EUR move (EUR is dominant in DXY).
+    const dxyChange24h = chg24h.EUR != null ? -chg24h.EUR : 0;
 
     const data = {
       currencies: CURR,
       matrices,
       values: valuesMatrix,
       usdRates,
-      pairChanges: pairChanges24h,
+      pairChanges: chg24h, // back-compat field used by Fear & Greed aggregator
       dxy,
       dxyChange24h: +dxyChange24h.toFixed(2),
+      source: 'frankfurter (ECB)',
+      asOf: latest.date,
       lastUpdated: new Date().toISOString(),
     };
-    setCache('macro:fx', data, 30 * 60 * 1000); // 30 min — heavy: 11 currencies × 3 timeframes
+    setCache('macro:fx', data, 30 * 60 * 1000);
     return Response.json(data);
   } catch (e) {
-    return Response.json({ error: e.message || 'FX fetch failed' }, { status: 500 });
+    return Response.json({ error: e.message || 'Frankfurter fetch failed' }, { status: 500 });
   }
 }

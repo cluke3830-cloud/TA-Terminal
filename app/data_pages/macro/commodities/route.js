@@ -1,41 +1,83 @@
 import { getCached, setCache } from '../../_cache';
+import YahooFinance from 'yahoo-finance2';
+
+// Yahoo Finance is free, unlimited, no auth — but unofficial.
+// We try FMP first (cleaner symbology), fall back to Yahoo for any commodity
+// where FMP returns null or rate-limits. Worst-case: free-tier FMP runs out
+// at 250/day; Yahoo carries the load until midnight reset.
+
+const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const COMM = [
-  { symbol: 'CLUSD',     name: 'WTI Crude',     unit: 'USD/bbl',   cat: 'energy' },
-  { symbol: 'BZUSD',     name: 'Brent Crude',   unit: 'USD/bbl',   cat: 'energy' },
-  { symbol: 'NGUSD',     name: 'Natural Gas',   unit: 'USD/MMBtu', cat: 'energy' },
-  { symbol: 'HOUSD',     name: 'Heating Oil',   unit: 'USD/gal',   cat: 'energy' },
-  { symbol: 'RBUSD',     name: 'RBOB Gasoline', unit: 'USD/gal',   cat: 'energy' },
-  { symbol: 'GCUSD',     name: 'Gold',          unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'SIUSD',     name: 'Silver',        unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'HGUSD',     name: 'Copper',        unit: 'USD/lb',    cat: 'metal'  },
-  { symbol: 'PLUSD',     name: 'Platinum',      unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'PAUSD',     name: 'Palladium',     unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'ZCUSD',     name: 'Corn',          unit: 'USD/bu',    cat: 'agri'   },
-  { symbol: 'ZWUSD',     name: 'Wheat',         unit: 'USD/bu',    cat: 'agri'   },
-  { symbol: 'ZSUSD',     name: 'Soybeans',      unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'CLUSD', yahoo: 'CL=F', name: 'WTI Crude',     unit: 'USD/bbl',   cat: 'energy' },
+  { symbol: 'BZUSD', yahoo: 'BZ=F', name: 'Brent Crude',   unit: 'USD/bbl',   cat: 'energy' },
+  { symbol: 'NGUSD', yahoo: 'NG=F', name: 'Natural Gas',   unit: 'USD/MMBtu', cat: 'energy' },
+  { symbol: 'HOUSD', yahoo: 'HO=F', name: 'Heating Oil',   unit: 'USD/gal',   cat: 'energy' },
+  { symbol: 'RBUSD', yahoo: 'RB=F', name: 'RBOB Gasoline', unit: 'USD/gal',   cat: 'energy' },
+  { symbol: 'GCUSD', yahoo: 'GC=F', name: 'Gold',          unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'SIUSD', yahoo: 'SI=F', name: 'Silver',        unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'HGUSD', yahoo: 'HG=F', name: 'Copper',        unit: 'USD/lb',    cat: 'metal'  },
+  { symbol: 'PLUSD', yahoo: 'PL=F', name: 'Platinum',      unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'PAUSD', yahoo: 'PA=F', name: 'Palladium',     unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'ZCUSD', yahoo: 'ZC=F', name: 'Corn',          unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'ZWUSD', yahoo: 'ZW=F', name: 'Wheat',         unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'ZSUSD', yahoo: 'ZS=F', name: 'Soybeans',      unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'URA',   yahoo: 'URA',  name: 'Uranium (URA ETF)', unit: 'USD',   cat: 'energy' },
+  { symbol: 'LIT',   yahoo: 'LIT',  name: 'Lithium (LIT ETF)', unit: 'USD',   cat: 'metal'  },
 ];
 
-const URANIUM_PROXY = { symbol: 'URA', name: 'Uranium (URA ETF)', unit: 'USD', cat: 'energy' };
-const LITHIUM_PROXY = { symbol: 'LIT', name: 'Lithium (LIT ETF)', unit: 'USD', cat: 'metal' };
-
 async function fmpQuote(symbol, key) {
+  if (!key) return null;
   try {
     const r = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const j = await r.json();
+    if (j && j['Error Message']) return null;
     return Array.isArray(j) && j[0] ? j[0] : null;
   } catch (_) { return null; }
 }
 
 async function fmpHistory(symbol, key) {
+  if (!key) return null;
   try {
     const r = await fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const j = await r.json();
-    if (!Array.isArray(j)) return null;
-    return j.map((p) => ({ date: p.date, price: p.price ?? p.close })).filter((p) => p.price != null);
+    if (!Array.isArray(j) || j.length === 0) return null;
+    return j.map((p) => ({ date: p.date, price: p.price ?? p.close })).filter((p) => p.date && p.price != null);
   } catch (_) { return null; }
+}
+
+async function yahooQuoteAndHistory(yahooSymbol) {
+  try {
+    const oneYearAgo = new Date();
+    oneYearAgo.setUTCFullYear(oneYearAgo.getUTCFullYear() - 1);
+    oneYearAgo.setUTCDate(oneYearAgo.getUTCDate() - 30); // small buffer for YTD anchor
+
+    const [q, hist] = await Promise.all([
+      yahoo.quote(yahooSymbol).catch(() => null),
+      yahoo.chart(yahooSymbol, { period1: oneYearAgo, interval: '1d' }).catch(() => null),
+    ]);
+
+    const quote = q ? {
+      price: q.regularMarketPrice ?? null,
+      change: q.regularMarketChange ?? null,
+      changesPercentage: q.regularMarketChangePercent ?? null,
+    } : null;
+
+    const history = hist?.quotes
+      ? hist.quotes
+          .map((p) => ({
+            date: p.date instanceof Date ? p.date.toISOString().slice(0, 10) : String(p.date).slice(0, 10),
+            price: p.close ?? p.adjclose ?? null,
+          }))
+          .filter((p) => p.date && p.price != null)
+      : null;
+
+    return { quote, history };
+  } catch (_) {
+    return { quote: null, history: null };
+  }
 }
 
 function deriveStats(history) {
@@ -53,14 +95,7 @@ function deriveStats(history) {
   const ytdPct = ytdAnchor && ytdAnchor.price > 0 ? +(((last - ytdAnchor.price) / ytdAnchor.price) * 100).toFixed(2) : null;
 
   const sparkline = sorted.slice(-30).map((p) => p.price);
-
-  return {
-    sparkline,
-    ytdPct,
-    weekHigh52: +weekHigh52.toFixed(2),
-    weekLow52: +weekLow52.toFixed(2),
-    pctFromHigh,
-  };
+  return { sparkline, ytdPct, weekHigh52: +weekHigh52.toFixed(2), weekLow52: +weekLow52.toFixed(2), pctFromHigh };
 }
 
 async function eiaElectricity(key) {
@@ -75,9 +110,26 @@ async function eiaElectricity(key) {
       .map((d) => ({ date: d.period, price: parseFloat(d.price) }))
       .filter((d) => !isNaN(d.price))
       .sort((a, b) => a.date.localeCompare(b.date));
-    if (sorted.length === 0) return null;
-    return sorted;
+    return sorted.length > 0 ? sorted : null;
   } catch (_) { return null; }
+}
+
+async function fetchOne(c, KEY) {
+  // Try FMP first.
+  const [fmpQ, fmpH] = await Promise.all([fmpQuote(c.symbol, KEY), fmpHistory(c.symbol, KEY)]);
+  let quote = fmpQ ? { price: fmpQ.price, change: fmpQ.change, changesPercentage: fmpQ.changesPercentage } : null;
+  let history = fmpH;
+  let source = 'fmp';
+
+  // Yahoo fallback if either is missing.
+  if (!quote || quote.price == null || !history || history.length < 2) {
+    const y = await yahooQuoteAndHistory(c.yahoo);
+    if (!quote || quote.price == null) quote = y.quote;
+    if (!history || history.length < 2) history = y.history;
+    if ((quote && quote.price != null) || (history && history.length > 1)) source = 'yahoo';
+  }
+
+  return { c, quote, history, source };
 }
 
 export async function GET() {
@@ -86,30 +138,27 @@ export async function GET() {
 
   const KEY = process.env.FMP_API_KEY;
   const EIA = process.env.EIA_API_KEY;
-  if (!KEY) return Response.json({ error: 'FMP_API_KEY not configured' }, { status: 500 });
 
   try {
-    const all = [...COMM, URANIUM_PROXY, LITHIUM_PROXY];
-    const quotes = await Promise.all(all.map((c) => fmpQuote(c.symbol, KEY)));
-    const histories = await Promise.all(all.map((c) => fmpHistory(c.symbol, KEY)));
+    const results = await Promise.all(COMM.map((c) => fetchOne(c, KEY)));
 
-    const commodities = all.map((c, i) => {
-      const q = quotes[i];
-      const stats = deriveStats(histories[i]);
-      const price = q?.price ?? (stats.sparkline.length ? stats.sparkline[stats.sparkline.length - 1] : null);
+    const commodities = results.map(({ c, quote, history, source }) => {
+      const stats = deriveStats(history);
+      const price = quote?.price ?? (stats.sparkline.length ? stats.sparkline[stats.sparkline.length - 1] : null);
       return {
         symbol: c.symbol,
         name: c.name,
         unit: c.unit,
         category: c.cat,
         price,
-        change: q?.change ?? null,
-        changePct: q?.changesPercentage != null ? +q.changesPercentage.toFixed(2) : null,
+        change: quote?.change ?? null,
+        changePct: quote?.changesPercentage != null ? +Number(quote.changesPercentage).toFixed(2) : null,
         sparkline: stats.sparkline.length > 1 ? stats.sparkline : (price != null ? [price, price] : []),
         ytdPct: stats.ytdPct,
         weekHigh52: stats.weekHigh52,
         weekLow52: stats.weekLow52,
         pctFromHigh: stats.pctFromHigh,
+        source,
       };
     });
 
@@ -129,11 +178,12 @@ export async function GET() {
         weekHigh52: stats.weekHigh52,
         weekLow52: stats.weekLow52,
         pctFromHigh: stats.pctFromHigh,
+        source: 'eia',
       });
     }
 
     const data = { commodities, lastUpdated: new Date().toISOString() };
-    setCache('macro:commodities', data, 60 * 60 * 1000); // 60 min — 14 commodities × 2 calls each
+    setCache('macro:commodities', data, 60 * 60 * 1000); // 60 min
     return Response.json(data);
   } catch (e) {
     return Response.json({ error: e.message || 'Commodity fetch failed' }, { status: 500 });
