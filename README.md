@@ -1,4 +1,4 @@
-# ⚛ Taeheon Terminal · Quantum Stock + Macro
+# ⚛ TA Terminal · Quantum Stock + Macro
 
 A two-page financial intelligence platform built for retail traders.
 Equity analytics on `/` and global macro signals on `/macro`.
