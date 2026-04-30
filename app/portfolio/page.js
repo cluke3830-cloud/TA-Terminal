@@ -271,7 +271,7 @@ function FrontierSection({ plotlyReady }) {
             </div>
           )}
 
-          <div ref={chartRef} style={{ height: 360, marginTop: 14 }} />
+          <div ref={chartRef} style={{ height: 720, marginTop: 14 }} />
         </div>
       </div>
 
@@ -435,7 +435,7 @@ function BacktestSection({ plotlyReady }) {
             </div>
           )}
 
-          <div ref={chartRef} style={{ height: 360, marginTop: 14 }} />
+          <div ref={chartRef} style={{ height: 720, marginTop: 14 }} />
         </div>
       </div>
 
