@@ -52,7 +52,8 @@ export default function Nav() {
       <span className="app-nav-brand">QUANTUM<span className="brand-dot" /></span>
       <Link href="/" className={isActive('/')}>Terminal</Link>
       <Link href="/macro" className={isActive('/macro')}>Macro</Link>
-      <Link href="/mc" className={isActive('/mc')}>MC Pricer</Link>
+      <Link href="/options" className={isActive('/options')}>Options</Link>
+      <Link href="/portfolio" className={isActive('/portfolio')}>Portfolio</Link>
 
       <div className="nav-search" ref={wrapRef}>
         <span className="nav-search-icon">⌕</span>

@@ -67,6 +67,7 @@ function MCPricerInner() {
   const initialK = parseFloat(searchParams.get('K')) || 100;
   const initialDays = parseInt((searchParams.get('T') || '30D').replace(/[^0-9]/g, ''), 10) || 30;
   const initialPaths = parseInt(searchParams.get('paths'), 10) || 1_000_000;
+  const embed = searchParams.get('embed') === '1';
 
   const [sym, setSym] = useState(initialSym);
   const [optionType, setOptionType] = useState(initialType);
@@ -359,25 +360,36 @@ function MCPricerInner() {
   }, [history]);
 
   return (
-    <main className="mc-dash">
-      <MCSearchBar value={sym} onPick={pickTicker} />
+    <main className={`mc-dash ${embed ? 'mc-dash-embed' : ''}`}>
+      {embed && (
+        <style>{`
+          .app-nav { display: none !important; }
+          body { padding-top: 0 !important; }
+          .mc-dash-embed { padding-top: 12px; }
+        `}</style>
+      )}
+      {!embed && <MCSearchBar value={sym} onPick={pickTicker} />}
 
-      <div className="mc-head fi">
-        <div>
-          <span className="mc-head-tag">OPTION PRICER · MONTE CARLO</span>
-          <h1 className="mc-head-title">
-            <span className="mc-head-sym">{sym}</span>
-            <span className="mc-head-divider">·</span>
-            <span>{optionType.toUpperCase()} {isCall ? 'CALL' : 'PUT'}</span>
-          </h1>
-          <div className="mc-head-blurb">{OPTION_BLURB[optionType] || 'Pick a strike and expiry, then hit Run.'}</div>
+      {!embed && (
+        <div className="mc-head fi">
+          <div>
+            <span className="mc-head-tag">OPTION PRICER · MONTE CARLO</span>
+            <h1 className="mc-head-title">
+              <span className="mc-head-sym">{sym}</span>
+              <span className="mc-head-divider">·</span>
+              <span>{optionType.toUpperCase()} {isCall ? 'CALL' : 'PUT'}</span>
+            </h1>
+            <div className="mc-head-blurb">{OPTION_BLURB[optionType] || 'Pick a strike and expiry, then hit Run.'}</div>
+          </div>
+          <div className="mc-head-tag mc-head-tag-r">Quick (browser) vs <span style={{ color: '#00f59b' }}>Fast (AMD MI300X)</span></div>
         </div>
-        <div className="mc-head-tag mc-head-tag-r">Quick (browser) vs <span style={{ color: '#00f59b' }}>Fast (AMD MI300X)</span></div>
-      </div>
+      )}
 
-      <div className="mc-intro">
-        Pick a stock, choose an option type, set the strike + expiry, and hit Run. We simulate thousands of price paths and average the payoff to estimate a fair price. New here? Tap a preset below to start.
-      </div>
+      {!embed && (
+        <div className="mc-intro">
+          Pick a stock, choose an option type, set the strike + expiry, and hit Run. We simulate thousands of price paths and average the payoff to estimate a fair price. New here? Tap a preset below to start.
+        </div>
+      )}
 
       <div className="mc-presets fi">
         <span className="mc-presets-l">Presets</span>

@@ -3,6 +3,16 @@
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { fmt, fmtPct, fmtDate, fmtTime, Load, Err } from '../components/ui';
+import SentimentHeatmap from './components/SentimentHeatmap';
+
+const FOCUS_TO_ID = {
+  yields: 'sec-yields',
+  comm: 'sec-comm',
+  fx: 'sec-fx',
+  banks: 'sec-banks',
+  cal: 'sec-cal',
+  flights: 'sec-flights',
+};
 
 const FOCUS_TO_ID = {
   yields: 'sec-yields',
@@ -861,6 +871,14 @@ function MacroDashboardInner() {
                 </div>
               </div>
             )}
+          </div>
+        </section>
+
+        {/* ──────────── 8. SENTIMENT HEATMAP (FinBERT) ──────────── */}
+        <section className="msec fi">
+          <div className="msec-h"><div className="msec-t"><span className="msec-t-num">08</span>Sector Sentiment · FinBERT on AMD MI300X</div></div>
+          <div className="msec-b">
+            <SentimentHeatmap />
           </div>
         </section>
 

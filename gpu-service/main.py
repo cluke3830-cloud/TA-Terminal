@@ -2,6 +2,7 @@
 
   POST /mc/run        — Monte Carlo option pricing on MI300X (ROCm via PyTorch)
   POST /rag/search    — top-k cosine over the SEC EDGAR ChromaDB collection
+  POST /finbert/score — FinBERT (ProsusAI/finbert) sentiment scoring
   GET  /health        — device + model + chunk-count snapshot
 
 Run on the MI300X box::
@@ -15,7 +16,8 @@ not live in this codebase.
 
 from __future__ import annotations
 
-from typing import Optional
+import threading
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +25,7 @@ from pydantic import BaseModel, Field
 
 import mc as mc_mod
 import rag as rag_mod
+import finbert as finbert_mod
 
 
 app = FastAPI(title="Quantum Terminal · gpu-service")
@@ -57,6 +60,15 @@ class RAGRequest(BaseModel):
     ticker: Optional[str] = None
 
 
+class FinBERTRequest(BaseModel):
+    texts: List[str] = Field(default_factory=list)
+
+
+# Warm FinBERT in the background so the first user call doesn't pay the
+# HuggingFace download cost. Failures are swallowed by finbert.warm().
+threading.Thread(target=finbert_mod.warm, daemon=True).start()
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
@@ -72,6 +84,10 @@ def health():
         info["rag"] = rag_mod.stats()
     except Exception as e:
         info["rag_error"] = str(e)
+    try:
+        info["finbert"] = finbert_mod.health()
+    except Exception as e:
+        info["finbert_error"] = str(e)
     return info
 
 
@@ -97,5 +113,16 @@ def rag_search(req: RAGRequest):
         raise HTTPException(status_code=400, detail="query is required")
     try:
         return {"results": rag_mod.search(req.query, k=req.k, ticker=req.ticker)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+
+@app.post("/finbert/score")
+def finbert_score(req: FinBERTRequest):
+    cleaned = [t for t in (req.texts or []) if t and t.strip()]
+    if not cleaned:
+        return {"results": []}
+    try:
+        return {"results": finbert_mod.score(cleaned)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")

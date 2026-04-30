@@ -17,6 +17,7 @@ uvicorn[standard]>=0.27
 pydantic>=2.5
 chromadb>=0.4.22
 sentence-transformers>=2.7.0
+transformers>=4.40
 requests>=2.31
 tqdm>=4.66
 beautifulsoup4>=4.12

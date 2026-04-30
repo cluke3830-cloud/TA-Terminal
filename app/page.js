@@ -1,14 +1,14 @@
 'use client';
 import './globals.css';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 const FOCUS_TO_ID = {
   overview: 'sec-overview',
   chart: 'sec-chart',
   earn: 'sec-earn',
   fin: 'sec-fin',
-  opt: 'sec-opt',
+  opt: 'options',
   fc: 'sec-fc',
 };
 
@@ -82,6 +82,7 @@ export default function Dashboard() {
 
 function DashboardInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const initialSym = searchParams.get('sym')?.toUpperCase() || 'NVDA';
   const initialTf = searchParams.get('tf') || '1Min';
 
@@ -93,30 +94,26 @@ function DashboardInner() {
   const [stock, setStock] = useState(null);
   const [earn, setEarn] = useState(null);
   const [fin, setFin] = useState(null);
-  const [opts, setOpts] = useState(null);
   const [fc, setFc] = useState(null);
+  const [news, setNews] = useState(null);
 
   const [ld, setLd] = useState({});
   const [er, setEr] = useState({});
   const [tab, setTab] = useState('income');
   const [clock, setClock] = useState(fmtTime());
 
-  const [plotlyReady, setPlotlyReady] = useState(false);
-
   const cRef = useRef(null);
   const cInst = useRef(null);
-  const ivRef = useRef(null);
-  const ivrvRef = useRef(null);
 
   useEffect(() => { const t = setInterval(() => setClock(fmtTime()), 1000); return () => clearInterval(t); }, []);
 
-  // Detect Plotly CDN script load
+  // Old #sec-opt anchor → new dedicated /options page.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (window.Plotly) { setPlotlyReady(true); return; }
-    const t = setInterval(() => { if (window.Plotly) { setPlotlyReady(true); clearInterval(t); } }, 100);
-    return () => clearInterval(t);
-  }, []);
+    if (window.location.hash === '#sec-opt') {
+      router.replace(`/options?sym=${encodeURIComponent(sym)}`);
+    }
+  }, [router, sym]);
 
   // Fetcher
   const fetchS = useCallback(async (key, url, setter) => {
@@ -130,8 +127,8 @@ function DashboardInner() {
     fetchS('stock', `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=3`, setStock);
     fetchS('earn', `/data_pages/earnings?symbol=${s}`, setEarn);
     fetchS('fin', `/data_pages/financials?symbol=${s}`, setFin);
-    fetchS('opts', `/data_pages/options?symbol=${s}`, setOpts);
     fetchS('fc', `/data_pages/forecast?symbol=${s}`, setFc);
+    fetchS('news', `/data_pages/news?symbol=${s}`, setNews);
   }, [fetchS]);
 
   useEffect(() => { fetchAll(sym, tf); }, [sym, tf, fetchAll]);
@@ -154,8 +151,7 @@ function DashboardInner() {
   // Auto-refresh 60s
   useEffect(() => {
     const i1 = setInterval(() => fetchS('stock', `/data_pages/stock?symbol=${sym}&timeframe=${tf}&tradingDays=3`, setStock), 60000);
-    const i2 = setInterval(() => fetchS('opts', `/data_pages/options?symbol=${sym}`, setOpts), 60000);
-    return () => { clearInterval(i1); clearInterval(i2); };
+    return () => clearInterval(i1);
   }, [sym, tf, fetchS]);
 
   // ── TradingView Lightweight Chart ──────────────────────────────────────────
@@ -225,77 +221,6 @@ function DashboardInner() {
       if (cInst.current) { try { cInst.current.remove(); } catch {} cInst.current = null; }
     };
   }, [stock, chartType, tz]);
-
-  // ── Plotly: IV Surface ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!opts?.surface?.length || !ivRef.current || !plotlyReady) return;
-    const calls = opts.surface.filter(d => d.type === 'call');
-    if (calls.length < 5) return;
-    const strikes = [...new Set(calls.map(d => d.strike))].sort((a, b) => a - b);
-    const dtes = [...new Set(calls.map(d => d.dte))].sort((a, b) => a - b);
-    const lk = {}; calls.forEach(d => { lk[`${d.strike}-${d.dte}`] = d.iv; });
-    const z = dtes.map(dte => strikes.map(k => lk[`${k}-${dte}`] ?? null));
-    window.Plotly.newPlot(ivRef.current, [{
-      type: 'surface', x: strikes, y: dtes, z,
-      colorscale: [[0,'#050520'],[0.1,'#0a0a4a'],[0.25,'#1a3388'],[0.4,'#2255bb'],[0.55,'#3388dd'],[0.7,'#55aaee'],[0.85,'#88ccff'],[1,'#cceeFF']],
-      contours: {
-        z: { show: true, usecolormap: true, highlightcolor: '#00d4ff', project: { z: true } },
-        x: { show: true, color: 'rgba(0,212,255,0.08)', width: 1 },
-        y: { show: true, color: 'rgba(0,212,255,0.08)', width: 1 },
-      },
-      hovertemplate: 'Strike: $%{x:.0f}<br>DTE: %{y}d<br>IV: %{z:.1f}%<extra></extra>',
-      lighting: { ambient: 0.55, diffuse: 0.65, specular: 0.2, roughness: 0.9, fresnel: 0.3 },
-      opacity: 0.95,
-    }], {
-      scene: {
-        xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
-        yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
-        zaxis: { title: { text: 'IV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
-        bgcolor: '#111117', camera: { eye: { x: 1.6, y: -1.9, z: 0.65 } },
-        aspectratio: { x: 1.2, y: 1, z: 0.6 },
-      },
-      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
-      font: { color: '#555568', family: 'Geist Mono', size: 9 },
-      margin: { l: 0, r: 0, t: 36, b: 0 },
-      title: { text: `${sym} Implied Volatility Surface (Calls)`, font: { size: 12, color: '#a0a0b4' } },
-    }, { responsive: true, displayModeBar: false });
-  }, [opts, sym, plotlyReady]);
-
-  // ── Plotly: IV-RV Gap ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!opts?.surface?.length || !opts?.rv || !ivrvRef.current || !plotlyReady) return;
-    const calls = opts.surface.filter(d => d.type === 'call');
-    if (calls.length < 5) return;
-    const rv = opts.rv;
-    const strikes = [...new Set(calls.map(d => d.strike))].sort((a, b) => a - b);
-    const dtes = [...new Set(calls.map(d => d.dte))].sort((a, b) => a - b);
-    const lk = {}; calls.forEach(d => { lk[`${d.strike}-${d.dte}`] = d.iv; });
-    const z = dtes.map(dte => strikes.map(k => { const iv = lk[`${k}-${dte}`]; return iv != null ? +(iv - rv).toFixed(2) : null; }));
-    window.Plotly.newPlot(ivrvRef.current, [{
-      type: 'surface', x: strikes, y: dtes, z, zmid: 0,
-      colorscale: [[0,'#cc1133'],[0.2,'#993355'],[0.4,'#553355'],[0.5,'#1a1a25'],[0.6,'#334477'],[0.8,'#2288aa'],[1,'#00eebb']],
-      contours: {
-        z: { show: true, usecolormap: true, highlightcolor: '#ffffff', project: { z: true } },
-        x: { show: true, color: 'rgba(255,255,255,0.04)', width: 1 },
-        y: { show: true, color: 'rgba(255,255,255,0.04)', width: 1 },
-      },
-      hovertemplate: 'Strike: $%{x:.0f}<br>DTE: %{y}d<br>IV−RV: %{z:+.1f}%<extra></extra>',
-      lighting: { ambient: 0.55, diffuse: 0.65, specular: 0.2, roughness: 0.9, fresnel: 0.3 },
-      opacity: 0.95,
-    }], {
-      scene: {
-        xaxis: { title: { text: 'Strike ($)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
-        yaxis: { title: { text: 'Days to Expiry', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
-        zaxis: { title: { text: 'IV − RV (%)', font: { size: 10 } }, color: '#555568', gridcolor: '#282835', showspikes: false },
-        bgcolor: '#111117', camera: { eye: { x: 1.6, y: -1.9, z: 0.65 } },
-        aspectratio: { x: 1.2, y: 1, z: 0.6 },
-      },
-      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
-      font: { color: '#555568', family: 'Geist Mono', size: 9 },
-      margin: { l: 0, r: 0, t: 36, b: 0 },
-      title: { text: `${sym} IV−RV Gap | RV(90d) = ${rv.toFixed(1)}%`, font: { size: 12, color: '#a0a0b4' } },
-    }, { responsive: true, displayModeBar: false });
-  }, [opts, sym, plotlyReady]);
 
   const bars = stock?.bars || [];
   const last = bars[bars.length - 1];
@@ -423,30 +348,16 @@ function DashboardInner() {
           </div>
         </div>
 
-        {/* ROW 2: IV SURFACE | IV-RV GAP */}
-        <div id="sec-opt" className="g2 fi fi3">
-          <div className="card">
-            <div className="card-h"><span className="card-t">Implied Volatility Surface</span><span className="badge b-c">ALPACA · 60s</span></div>
-            {ld.opts ? <div className="ivbox"><Load t="Computing IV surface..." /></div>
-              : er.opts ? <div className="ivbox"><Err m={er.opts} /></div>
-              : opts && (!opts.surface || opts.surface.filter(d => d.type === 'call').length < 5)
-                ? <div className="ivbox"><div className="loading" style={{ flexDirection: 'column', gap: 6 }}>No IV surface data available for {sym}<span style={{ fontSize: 10, color: 'var(--ash)' }}>Options data requires active contracts with sufficient liquidity</span></div></div>
-              : <>
-              <div ref={ivRef} className="ivbox" />
-              <div className="ivleg"><b>X:</b> Strike price ($). <b>Y:</b> Days to expiration. <b>Z (height/color):</b> Implied Volatility (%) — market&apos;s expected annualized move. Higher peaks = greater uncertainty. The &quot;smile&quot; across strikes shows vol skew.</div>
-            </>}
-          </div>
-          <div className="card">
-            <div className="card-h"><span className="card-t">IV − RV Gap Surface</span><span className="badge b-g">{opts?.rv ? `RV(90d) = ${opts.rv.toFixed(1)}%` : 'COMPUTING'}</span></div>
-            {ld.opts ? <div className="ivbox"><Load t="Computing IV-RV gap..." /></div>
-              : er.opts ? <div className="ivbox"><Err m={er.opts} /></div>
-              : opts && (!opts.surface?.length || !opts.rv)
-                ? <div className="ivbox"><div className="loading" style={{ flexDirection: 'column', gap: 6 }}>No IV-RV gap data available for {sym}<span style={{ fontSize: 10, color: 'var(--ash)' }}>Requires both options chain and 90-day historical price data</span></div></div>
-              : <>
-              <div ref={ivrvRef} className="ivbox" />
-              <div className="ivleg"><b>Shows:</b> Gap between <b>Implied Vol</b> (forward-looking) and <b>Realized Vol</b> (90-day historical).<br /><b style={{ color: 'var(--neon-cyan)' }}>Teal (positive):</b> IV &gt; RV → options &quot;expensive&quot; → consider selling premium.<br /><b style={{ color: 'var(--neon-red)' }}>Red (negative):</b> IV &lt; RV → options &quot;cheap&quot; → consider buying protection.</div>
-            </>}
-          </div>
+        {/* IV/Greeks/MC moved to dedicated /options page — link out from here. */}
+        <div className="fi fi3" style={{ padding: '0 18px' }}>
+          <a href={`/options?sym=${sym}`} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', textDecoration: 'none', cursor: 'pointer' }}>
+            <span style={{ fontSize: 24 }}>📈</span>
+            <div style={{ flex: 1 }}>
+              <div className="card-t" style={{ fontSize: 13 }}>Options Workbench →</div>
+              <div style={{ fontSize: 11, color: 'var(--ash)', marginTop: 2 }}>IV Surface · IV−RV Gap · Greeks · Vol Smile · Term Structure · VIX · Monte Carlo</div>
+            </div>
+            <span className="badge b-c">/options</span>
+          </a>
         </div>
 
         {/* FORECAST */}
@@ -477,15 +388,33 @@ function DashboardInner() {
               </div>
             )}
 
-            {fc?.news?.length > 0 && (
+            {(news?.articles?.length > 0 || fc?.news?.length > 0) && (
               <div style={{ padding: '0 18px 16px' }}>
-                <div className="sl">Recent News</div>
-                {fc.news.slice(0, 4).map((n, i) => (
-                  <div key={i} className="ni">
-                    <a href={n.url} target="_blank" rel="noopener noreferrer" className="nl">{n.title}</a>
-                    <div className="nm">{n.site} · {n.publishedDate?.split(' ')[0]}</div>
-                  </div>
-                ))}
+                <div className="sl" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span>Recent News {news?.sentimentAvailable ? '· FinBERT scored' : ''}</span>
+                  {news?.rolling?.d7 != null && (
+                    <span style={{ fontSize: 10, color: 'var(--ash)', fontFamily: 'var(--mono)' }}>
+                      7d: <b className={news.rolling.d7 >= 0 ? 'vg' : 'vr'}>{news.rolling.d7 >= 0 ? '+' : ''}{news.rolling.d7?.toFixed(2)}</b>
+                      {news.rolling.d30 != null && <> · 30d: <b className={news.rolling.d30 >= 0 ? 'vg' : 'vr'}>{news.rolling.d30 >= 0 ? '+' : ''}{news.rolling.d30?.toFixed(2)}</b></>}
+                    </span>
+                  )}
+                </div>
+                {(news?.articles || fc?.news || []).slice(0, 6).map((n, i) => {
+                  const sentiment = n.sentiment || null;
+                  const s = sentiment ? (sentiment.positive - sentiment.negative) : null;
+                  const cls = s == null ? '' : (s > 0.1 ? 'vg' : s < -0.1 ? 'vr' : 'vy');
+                  const badge = s == null ? null : (s > 0.1 ? 'b-g' : s < -0.1 ? 'b-p' : 'b-c');
+                  return (
+                    <div key={i} className="ni" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      {sentiment && <span className={`badge ${badge}`} style={{ minWidth: 60, textAlign: 'center', fontSize: 9 }}>{sentiment.label?.toUpperCase()}</span>}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <a href={n.url} target="_blank" rel="noopener noreferrer" className="nl">{n.title}</a>
+                        <div className="nm">{n.site} · {(n.date || n.publishedDate)?.slice(0, 10)}</div>
+                      </div>
+                      {s != null && <span className={cls} style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{s >= 0 ? '+' : ''}{s.toFixed(2)}</span>}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
