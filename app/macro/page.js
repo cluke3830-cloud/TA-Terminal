@@ -14,15 +14,6 @@ const FOCUS_TO_ID = {
   flights: 'sec-flights',
 };
 
-const FOCUS_TO_ID = {
-  yields: 'sec-yields',
-  comm: 'sec-comm',
-  fx: 'sec-fx',
-  banks: 'sec-banks',
-  cal: 'sec-cal',
-  flights: 'sec-flights',
-};
-
 // ═══════════════════════════════════════════════════════════════════════════════
 //  QUANTUM TERMINAL — MACRO ANALYSIS
 // ═══════════════════════════════════════════════════════════════════════════════
