@@ -1,10 +1,10 @@
 import { getCached, setCache } from '../../_cache';
 import YahooFinance from 'yahoo-finance2';
 
-// Yahoo Finance is free, unlimited, no auth — but unofficial.
-// We try FMP first (cleaner symbology), fall back to Yahoo for any commodity
-// where FMP returns null or rate-limits. Worst-case: free-tier FMP runs out
-// at 250/day; Yahoo carries the load until midnight reset.
+// Yahoo-first for liveness: unlimited, no key, refreshes near-real-time
+// (futures lag ~10 min on free tier). FMP fills gaps when Yahoo misses a
+// symbol. With Yahoo as primary the 250/day FMP cap stops being the
+// bottleneck, letting us drop the cache to 30s for live-feel updates.
 
 const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
@@ -115,21 +115,23 @@ async function eiaElectricity(key) {
 }
 
 async function fetchOne(c, KEY) {
-  // Try FMP first.
-  const [fmpQ, fmpH] = await Promise.all([fmpQuote(c.symbol, KEY), fmpHistory(c.symbol, KEY)]);
-  let quote = fmpQ ? { price: fmpQ.price, change: fmpQ.change, changesPercentage: fmpQ.changesPercentage } : null;
-  let history = fmpH;
-  let source = 'fmp';
+  // Yahoo first (unlimited, near-real-time).
+  const y = await yahooQuoteAndHistory(c.yahoo);
+  let quote = y.quote;
+  let history = y.history;
+  let source = (quote && quote.price != null) || (history && history.length > 1) ? 'yahoo' : null;
 
-  // Yahoo fallback if either is missing.
+  // FMP fallback when Yahoo is missing data.
   if (!quote || quote.price == null || !history || history.length < 2) {
-    const y = await yahooQuoteAndHistory(c.yahoo);
-    if (!quote || quote.price == null) quote = y.quote;
-    if (!history || history.length < 2) history = y.history;
-    if ((quote && quote.price != null) || (history && history.length > 1)) source = 'yahoo';
+    const [fmpQ, fmpH] = await Promise.all([fmpQuote(c.symbol, KEY), fmpHistory(c.symbol, KEY)]);
+    if ((!quote || quote.price == null) && fmpQ) {
+      quote = { price: fmpQ.price, change: fmpQ.change, changesPercentage: fmpQ.changesPercentage };
+    }
+    if ((!history || history.length < 2) && fmpH) history = fmpH;
+    if (!source && ((quote && quote.price != null) || (history && history.length > 1))) source = 'fmp';
   }
 
-  return { c, quote, history, source };
+  return { c, quote, history, source: source || 'unknown' };
 }
 
 export async function GET() {
@@ -183,7 +185,7 @@ export async function GET() {
     }
 
     const data = { commodities, lastUpdated: new Date().toISOString() };
-    setCache('macro:commodities', data, 60 * 60 * 1000); // 60 min
+    setCache('macro:commodities', data, 30 * 1000); // 30s — live-feel updates
     return Response.json(data);
   } catch (e) {
     return Response.json({ error: e.message || 'Commodity fetch failed' }, { status: 500 });

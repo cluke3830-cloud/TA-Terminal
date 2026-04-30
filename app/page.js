@@ -1,6 +1,16 @@
 'use client';
 import './globals.css';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+
+const FOCUS_TO_ID = {
+  overview: 'sec-overview',
+  chart: 'sec-chart',
+  earn: 'sec-earn',
+  fin: 'sec-fin',
+  opt: 'sec-opt',
+  fc: 'sec-fc',
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  QUANTUM STOCK TERMINAL — Main Page
@@ -63,11 +73,20 @@ const Err = ({ m }) => <div className="err">⚠ {m}</div>;
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function Dashboard() {
-  const [sym, setSym] = useState('NVDA');
-  const [q, setQ] = useState('');
-  const [sr, setSR] = useState([]);
-  const [dd, setDD] = useState(false);
-  const [tf, setTf] = useState('1Min');
+  return (
+    <Suspense fallback={<div className="loading"><div className="spinner" />Loading…</div>}>
+      <DashboardInner />
+    </Suspense>
+  );
+}
+
+function DashboardInner() {
+  const searchParams = useSearchParams();
+  const initialSym = searchParams.get('sym')?.toUpperCase() || 'NVDA';
+  const initialTf = searchParams.get('tf') || '1Min';
+
+  const [sym, setSym] = useState(initialSym);
+  const [tf, setTf] = useState(initialTf);
   const [chartType, setChartType] = useState('heikin');
   const [tz, setTz] = useState('America/New_York');
 
@@ -99,15 +118,6 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
-  // Search
-  useEffect(() => {
-    if (q.length < 1) { setSR([]); return; }
-    const t = setTimeout(async () => {
-      try { const r = await fetch(`/data_pages/search?q=${encodeURIComponent(q)}`); const d = await r.json(); setSR(d.results || []); setDD(true); } catch { setSR([]); }
-    }, 250);
-    return () => clearTimeout(t);
-  }, [q]);
-
   // Fetcher
   const fetchS = useCallback(async (key, url, setter) => {
     setLd(p => ({ ...p, [key]: true })); setEr(p => ({ ...p, [key]: null }));
@@ -125,6 +135,21 @@ export default function Dashboard() {
   }, [fetchS]);
 
   useEffect(() => { fetchAll(sym, tf); }, [sym, tf, fetchAll]);
+
+  // React to URL param changes (e.g. user picks `NVDA GP 1D` from the command
+  // palette while already on this page). Also handle ?focus=... by scrolling
+  // to the matching section once the page has settled.
+  useEffect(() => {
+    const urlSym = searchParams.get('sym')?.toUpperCase();
+    const urlTf = searchParams.get('tf');
+    const urlFocus = searchParams.get('focus');
+    if (urlSym && urlSym !== sym) setSym(urlSym);
+    if (urlTf && urlTf !== tf) setTf(urlTf);
+    if (urlFocus && FOCUS_TO_ID[urlFocus]) {
+      const el = document.getElementById(FOCUS_TO_ID[urlFocus]);
+      if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-refresh 60s
   useEffect(() => {
@@ -272,8 +297,6 @@ export default function Dashboard() {
     }, { responsive: true, displayModeBar: false });
   }, [opts, sym, plotlyReady]);
 
-  const pick = s => { setSym(s); setQ(''); setDD(false); setSR([]); };
-
   const bars = stock?.bars || [];
   const last = bars[bars.length - 1];
   const prev = bars[bars.length - 2];
@@ -299,28 +322,12 @@ export default function Dashboard() {
           <span className="brand">QUANTUM TERMINAL<span className="brand-dot" /></span>
           <span className="topbar-date">{fmtDate()} · {clock}</span>
         </div>
-        <div className="sw">
-          <span className="si-icon">⌕</span>
-          <input className="si" placeholder="Search ticker · ↵ to apply" value={q}
-            onChange={e => setQ(e.target.value.toUpperCase())}
-            onFocus={() => sr.length > 0 && setDD(true)}
-            onBlur={() => setTimeout(() => setDD(false), 180)}
-            onKeyDown={e => { if (e.key === 'Enter' && q) pick(q); }} />
-          {q && !dd && <span className="si-hint">↵ &quot;{q}&quot;</span>}
-          {dd && sr.length > 0 && (
-            <div className="sdd">
-              {sr.map(r => <div key={r.symbol} className="sdd-i" onMouseDown={() => pick(r.symbol)}>
-                <span className="sdd-sym">{r.symbol}</span><span className="sdd-name">{r.name}</span>
-              </div>)}
-            </div>
-          )}
-        </div>
       </header>
 
       <div className="warn">⚠ Free-tier API data — prices may be delayed 15 min · IV from indicative feed · not financial advice</div>
 
       <main className="dash">
-        <div className="sh fi">
+        <div id="sec-overview" className="sh fi">
           <span className="sh-tick">{sym}</span>
           <span className="sh-co">{coName}</span>
           <div className="sh-pb">
@@ -330,7 +337,7 @@ export default function Dashboard() {
         </div>
 
         {/* CHART */}
-        <div className="cc fi fi1">
+        <div id="sec-chart" className="cc fi fi1">
           <div className="cb">
             {['1Min','5Min','15Min','1Hour','1Day'].map(t => (
               <button key={t} className={`tf ${tf === t ? 'a' : ''}`} onClick={() => setTf(t)}>{t.replace('Min','m').replace('Hour','H').replace('Day','D')}</button>
@@ -360,7 +367,7 @@ export default function Dashboard() {
 
         {/* ROW 1: EARNINGS | FINANCIALS */}
         <div className="g2 fi fi2">
-          <div className="card">
+          <div id="sec-earn" className="card">
             <div className="card-h"><span className="card-t">Earnings</span><span className="badge b-c">FMP</span></div>
             <div className="card-b">
               {ld.earn ? <Load /> : er.earn ? <Err m={er.earn} /> : earn ? <>
@@ -386,7 +393,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="card">
+          <div id="sec-fin" className="card">
             <div className="card-h"><span className="card-t">Financials</span><span className="badge b-p">FMP</span></div>
             <div className="card-b">
               {ld.fin ? <Load /> : er.fin ? <Err m={er.fin} /> : fin ? <>
@@ -417,7 +424,7 @@ export default function Dashboard() {
         </div>
 
         {/* ROW 2: IV SURFACE | IV-RV GAP */}
-        <div className="g2 fi fi3">
+        <div id="sec-opt" className="g2 fi fi3">
           <div className="card">
             <div className="card-h"><span className="card-t">Implied Volatility Surface</span><span className="badge b-c">ALPACA · 60s</span></div>
             {ld.opts ? <div className="ivbox"><Load t="Computing IV surface..." /></div>
@@ -443,7 +450,7 @@ export default function Dashboard() {
         </div>
 
         {/* FORECAST */}
-        <div className="fc-card fi fi4">
+        <div id="sec-fc" className="fc-card fi fi4">
           <div className="card-h"><span className="card-t">Analyst Price Targets & Forecast</span><span className="badge b-c">FMP</span></div>
           {ld.fc ? <Load /> : er.fc ? <Err m={er.fc} /> : <>
             {tgt ? (

@@ -22,18 +22,20 @@ export async function GET() {
 
     // OpenSky state vector indices:
     // 0:icao24, 1:callsign, 2:origin_country, 5:lon, 6:lat, 7:baro_alt, 9:velocity
+    // No altitude floor — keep landings, take-offs, regional traffic. Slice
+    // to 10k aircraft so the world map looks dense without exploding payload.
     const filtered = states
-      .filter((s) => s[5] != null && s[6] != null && s[7] != null && s[7] > 3000)
+      .filter((s) => s[5] != null && s[6] != null)
       .map((s) => ({
         lat: +s[6].toFixed(3),
         lon: +s[5].toFixed(3),
-        alt: Math.round(s[7]),
+        alt: s[7] != null ? Math.round(s[7]) : 0,
         vel: s[9] != null ? Math.round(s[9]) : null,
         country: s[2] || '',
         callsign: (s[1] || '').trim(),
       }))
       .sort((a, b) => b.alt - a.alt)
-      .slice(0, 1500);
+      .slice(0, 10000);
 
     const data = {
       aircraft: filtered,

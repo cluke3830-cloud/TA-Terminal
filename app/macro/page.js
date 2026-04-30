@@ -1,7 +1,17 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { fmt, fmtPct, fmtDate, fmtTime, Load, Err } from '../components/ui';
+
+const FOCUS_TO_ID = {
+  yields: 'sec-yields',
+  comm: 'sec-comm',
+  fx: 'sec-fx',
+  banks: 'sec-banks',
+  cal: 'sec-cal',
+  flights: 'sec-flights',
+};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  QUANTUM TERMINAL — MACRO ANALYSIS
@@ -263,6 +273,16 @@ function CommodityModal({ commodity, plotlyReady, onClose }) {
 }
 
 export default function MacroDashboard() {
+  return (
+    <Suspense fallback={<div className="loading"><div className="spinner" />Loading macro…</div>}>
+      <MacroDashboardInner />
+    </Suspense>
+  );
+}
+
+function MacroDashboardInner() {
+  const searchParams = useSearchParams();
+
   const [yields, setYields] = useState(null);
   const [banks, setBanks] = useState(null);
   const [calendar, setCalendar] = useState(null);
@@ -377,13 +397,24 @@ export default function MacroDashboard() {
     setTimeout(() => fetchS('fg', '/data_pages/macro/feargreed', setFeargreed), 1500);
   }, [fetchS]);
 
-  // Auto-refresh (matches server cache TTLs to avoid burning FMP quota)
+  // Auto-refresh. Commodities are Yahoo-first now (no rate cap), so we can poll
+  // at 30s to match the server cache TTL and feel live.
   useEffect(() => {
     const fl = setInterval(() => fetchS('flights', '/data_pages/macro/flights', setFlights), 60_000);
     const f = setInterval(() => fetchS('fx', '/data_pages/macro/fx', setFx), 30 * 60_000);
-    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 60 * 60_000);
+    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 30_000);
     return () => { clearInterval(fl); clearInterval(f); clearInterval(c); };
   }, [fetchS]);
+
+  // ?focus=<panel> from the command palette: switch the world-map tab if
+  // needed, then scroll to the matching section once the page has settled.
+  useEffect(() => {
+    const focus = searchParams.get('focus');
+    if (!focus || !FOCUS_TO_ID[focus]) return;
+    if (focus === 'flights') setMapTab('flights');
+    const el = document.getElementById(FOCUS_TO_ID[focus]);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+  }, [searchParams]);
 
   // World Map render
   useEffect(() => {
@@ -425,10 +456,10 @@ export default function MacroDashboard() {
         lon: flights.aircraft.map((a) => a.lon),
         lat: flights.aircraft.map((a) => a.lat),
         marker: {
-          size: 3,
+          size: 2,
           color: flights.aircraft.map((a) => a.alt),
           colorscale: [[0, '#3377ff'], [0.5, '#00d4ff'], [1, '#00f59b']],
-          opacity: 0.75, line: { width: 0 },
+          opacity: 0.55, line: { width: 0 },
           colorbar: { title: { text: 'Alt (m)', font: CHART_FONT }, tickfont: CHART_FONT, len: 0.6, thickness: 10, x: 0.99, bgcolor: 'rgba(0,0,0,0)' },
         },
         text: flights.aircraft.map((a) => `${a.callsign || 'N/A'}<br>${a.country}<br>Alt: ${a.alt}m · ${a.vel || 0}m/s`),
@@ -589,7 +620,7 @@ export default function MacroDashboard() {
         </section>
 
         {/* ──────────── 1. WORLD MAP ──────────── */}
-        <section className="msec fi">
+        <section id="sec-flights" className="msec fi">
           <div className="msec-h">
             <div className="msec-t"><span className="msec-t-num">01</span>World Map · Geopolitics & Satellite</div>
             <div className="wmap-tabs">
@@ -626,7 +657,7 @@ export default function MacroDashboard() {
 
         {/* ──────────── 2-3. CENTRAL BANKS + CALENDAR ──────────── */}
         <div className="macro-g3">
-          <section className="msec fi">
+          <section id="sec-banks" className="msec fi">
             <div className="msec-h"><div className="msec-t"><span className="msec-t-num">02</span>Central Bank Monitor · The Engine Room</div></div>
             <div className="msec-b">
               {ld.banks && !banks && <Load />}
@@ -652,7 +683,7 @@ export default function MacroDashboard() {
             </div>
           </section>
 
-          <section className="msec fi">
+          <section id="sec-cal" className="msec fi">
             <div className="msec-h">
               <div className="msec-t"><span className="msec-t-num">03</span>Economic Calendar · Surprise Index</div>
               <div className="wmap-tabs">
@@ -743,7 +774,7 @@ export default function MacroDashboard() {
 
         {/* ──────────── 4-5. YIELD CURVE + FX MATRIX ──────────── */}
         <div className="macro-g2">
-          <section className="msec fi">
+          <section id="sec-yields" className="msec fi">
             <div className="msec-h">
               <div className="msec-t"><span className="msec-t-num">04</span>Yield Curve · The Crystal Ball</div>
               <div>
@@ -769,7 +800,7 @@ export default function MacroDashboard() {
             {ld.yields && !yields && <Load t="Loading FRED yield data…" />}
           </section>
 
-          <section className="msec fi">
+          <section id="sec-fx" className="msec fi">
             <div className="msec-h"><div className="msec-t"><span className="msec-t-num">05</span>FX Strength Matrix</div></div>
             <div className="msec-b">
               {ld.fx && !fx && <Load />}
@@ -780,8 +811,21 @@ export default function MacroDashboard() {
         </div>
 
         {/* ──────────── 6. COMMODITY PULSE ──────────── */}
-        <section className="msec fi">
-          <div className="msec-h"><div className="msec-t"><span className="msec-t-num">06</span>Commodity & Energy Pulse</div></div>
+        <section id="sec-comm" className="msec fi">
+          <div className="msec-h">
+            <div className="msec-t"><span className="msec-t-num">06</span>Commodity & Energy Pulse</div>
+            {commodities?.lastUpdated && (() => {
+              const ageS = Math.max(0, Math.floor((now - new Date(commodities.lastUpdated).getTime()) / 1000));
+              const fresh = ageS < 60;
+              const c = fresh ? 'var(--neon-green)' : 'var(--neon-yellow)';
+              return (
+                <span className="live-pill" title="Yahoo Finance · futures lag ~10 min">
+                  <span className="live-pill-dot" style={{ background: c }} />
+                  <span className="live-pill-label" style={{ color: c }}>LIVE · {ageS}s ago</span>
+                </span>
+              );
+            })()}
+          </div>
           <div className="msec-b">
             {ld.commodities && !commodities && <Load />}
             {er.commodities && <Err m={er.commodities} />}

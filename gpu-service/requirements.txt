@@ -1,0 +1,23 @@
+# gpu-service runtime dependencies.
+#
+# Install PyTorch separately for ROCm — pip's index URL differs from the
+# default. Example for ROCm 6.0:
+#
+#     pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
+#
+# Then install the rest from this file:
+#
+#     pip install -r requirements.txt
+#
+# (CUDA boxes can install torch from the default index. CPU dev laptops can
+# install plain `torch` — the code falls back gracefully.)
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+chromadb>=0.4.22
+sentence-transformers>=2.7.0
+requests>=2.31
+tqdm>=4.66
+beautifulsoup4>=4.12
+lxml>=4.9

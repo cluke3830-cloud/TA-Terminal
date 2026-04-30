@@ -1,7 +1,22 @@
 node_modules/
 .next/
+
+# Secrets — never commit these
 .env
-.env.local
+.env.*
+.env(*)
+.env*Shared*
+
 .vercel/
 out/
 .vercel
+
+# Python (gpu-service)
+gpu-service/.venv/
+gpu-service/__pycache__/
+gpu-service/chroma_db/
+*.pyc
+__pycache__/
+
+# OS
+.DS_Store
