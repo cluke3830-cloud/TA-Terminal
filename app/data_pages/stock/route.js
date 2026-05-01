@@ -26,11 +26,12 @@ export async function GET(req) {
   const timeframe = searchParams.get('timeframe') || '1Min';
 
   // tradingDays takes priority; legacy days param still supported for back-compat.
+  // Caps raised to support user-configurable lookback up to ~1y intraday / ~5y daily.
   const tradingDaysParam = searchParams.get('tradingDays');
-  const tradingDays = tradingDaysParam ? Math.min(parseInt(tradingDaysParam, 10) || 3, 20) : null;
+  const tradingDays = tradingDaysParam ? Math.min(parseInt(tradingDaysParam, 10) || 3, 252) : null;
   const calendarDays = tradingDays
     ? Math.ceil(tradingDays * 1.6 + 2)
-    : Math.min(parseInt(searchParams.get('days') || '5', 10), 30);
+    : Math.min(parseInt(searchParams.get('days') || '5', 10), 1825);
 
   const key = process.env.ALPACA_API_KEY;
   const secret = process.env.ALPACA_SECRET_KEY;

@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
     "cmdk": "^1.1.1",
     "lightweight-charts": "^4.2.1",
     "next": "^14.2.15",
