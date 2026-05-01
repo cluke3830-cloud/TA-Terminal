@@ -116,13 +116,13 @@ async function yahooFin(symbol) {
   return { profile, ratios, income, balance, cashflow };
 }
 
-export async function GET(req) {
-  const { searchParams } = new URL(req.url);
-  const symbol = (searchParams.get('symbol') || 'NVDA').toUpperCase();
-
+// Reusable loader so screener / other server code can call the same Yahoo/FMP path.
+export async function loadFin(symbol) {
+  symbol = (symbol || '').toUpperCase();
+  if (!symbol) return null;
   const cacheKey = `fin:${symbol}`;
   const cached = getCached(cacheKey);
-  if (cached) return Response.json(cached);
+  if (cached) return cached;
 
   let result = null;
   let source = 'fmp';
@@ -133,9 +133,16 @@ export async function GET(req) {
   if (!result) {
     const empty = { profile: {}, ratios: {}, income: [], balance: [], cashflow: [], source: 'unavailable' };
     setCache(cacheKey, empty, 5 * 60 * 1000);
-    return Response.json(empty);
+    return empty;
   }
   result.source = source;
   setCache(cacheKey, result, 60 * 60 * 1000);
+  return result;
+}
+
+export async function GET(req) {
+  const { searchParams } = new URL(req.url);
+  const symbol = (searchParams.get('symbol') || 'NVDA').toUpperCase();
+  const result = await loadFin(symbol);
   return Response.json(result);
 }

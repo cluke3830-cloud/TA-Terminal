@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
+const TAB_ROUTES = ['/', '/macro', '/options', '/portfolio', '/custom'];
+
 // Global ticker search. Lives in the top nav so every page (Terminal, Macro,
 // MC Pricer) has it. Selecting a result routes to /?sym=<TICKER>; pressing
 // Enter on a typed query routes to /?sym=<query>. The Dashboard reads the
@@ -42,6 +44,23 @@ export default function Nav() {
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
+  // Digit-key tab navigation: 1–5 jump between top-nav tabs.
+  // Skip when the user is typing in any input/textarea/contenteditable.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= TAB_ROUTES.length) {
+        e.preventDefault();
+        router.push(TAB_ROUTES[n - 1]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [router]);
+
   const pick = (symbol) => {
     setQ(''); setResults([]); setOpen(false);
     router.push(`/?sym=${encodeURIComponent(symbol.toUpperCase())}`);
@@ -54,6 +73,7 @@ export default function Nav() {
       <Link href="/macro" className={isActive('/macro')}>Macro</Link>
       <Link href="/options" className={isActive('/options')}>Options</Link>
       <Link href="/portfolio" className={isActive('/portfolio')}>Portfolio</Link>
+      <Link href="/custom" className={isActive('/custom')}>Custom</Link>
 
       <div className="nav-search" ref={wrapRef}>
         <span className="nav-search-icon">⌕</span>

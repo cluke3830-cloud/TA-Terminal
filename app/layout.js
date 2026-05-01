@@ -2,6 +2,8 @@ import './globals.css';
 import Script from 'next/script';
 import Nav from './components/Nav';
 import CommandPalette from './components/CommandPalette';
+import ToastHost from './components/ToastHost';
+import ShortcutHelp from './components/ShortcutHelp';
 
 export const metadata = {
   title: 'Quantum Terminal · Equity + Macro',
@@ -20,6 +22,8 @@ export default function RootLayout({ children }) {
         <Nav />
         {children}
         <CommandPalette />
+        <ToastHost />
+        <ShortcutHelp />
         <Script src="https://cdn.plot.ly/plotly-2.30.0.min.js" strategy="afterInteractive" />
       </body>
     </html>

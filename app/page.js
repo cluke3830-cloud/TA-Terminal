@@ -85,11 +85,13 @@ function DashboardInner() {
   const router = useRouter();
   const initialSym = searchParams.get('sym')?.toUpperCase() || 'NVDA';
   const initialTf = searchParams.get('tf') || '1Min';
+  const initialDays = parseInt(searchParams.get('days') || '0', 10) || null;
 
   const [sym, setSym] = useState(initialSym);
   const [tf, setTf] = useState(initialTf);
   const [chartType, setChartType] = useState('heikin');
   const [tz, setTz] = useState('America/New_York');
+  const [days, setDays] = useState(initialDays); // null = use default (3 trading days)
 
   const [stock, setStock] = useState(null);
   const [earn, setEarn] = useState(null);
@@ -123,15 +125,20 @@ function DashboardInner() {
     finally { setLd(p => ({ ...p, [key]: false })); }
   }, []);
 
-  const fetchAll = useCallback((s, t) => {
-    fetchS('stock', `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=3`, setStock);
+  const buildStockUrl = useCallback((s, t, d) => {
+    if (d && d > 0) return `/data_pages/stock?symbol=${s}&timeframe=${t}&days=${d}`;
+    return `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=3`;
+  }, []);
+
+  const fetchAll = useCallback((s, t, d) => {
+    fetchS('stock', buildStockUrl(s, t, d), setStock);
     fetchS('earn', `/data_pages/earnings?symbol=${s}`, setEarn);
     fetchS('fin', `/data_pages/financials?symbol=${s}`, setFin);
     fetchS('fc', `/data_pages/forecast?symbol=${s}`, setFc);
     fetchS('news', `/data_pages/news?symbol=${s}`, setNews);
-  }, [fetchS]);
+  }, [fetchS, buildStockUrl]);
 
-  useEffect(() => { fetchAll(sym, tf); }, [sym, tf, fetchAll]);
+  useEffect(() => { fetchAll(sym, tf, days); }, [sym, tf, days, fetchAll]);
 
   // React to URL param changes (e.g. user picks `NVDA GP 1D` from the command
   // palette while already on this page). Also handle ?focus=... by scrolling
@@ -140,19 +147,26 @@ function DashboardInner() {
     const urlSym = searchParams.get('sym')?.toUpperCase();
     const urlTf = searchParams.get('tf');
     const urlFocus = searchParams.get('focus');
+    const urlDays = parseInt(searchParams.get('days') || '0', 10) || null;
     if (urlSym && urlSym !== sym) setSym(urlSym);
     if (urlTf && urlTf !== tf) setTf(urlTf);
+    if (urlDays !== days) setDays(urlDays);
     if (urlFocus && FOCUS_TO_ID[urlFocus]) {
       const el = document.getElementById(FOCUS_TO_ID[urlFocus]);
       if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
     }
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-refresh 60s
+  // Live polling — interval depends on timeframe; pauses when tab is hidden.
   useEffect(() => {
-    const i1 = setInterval(() => fetchS('stock', `/data_pages/stock?symbol=${sym}&timeframe=${tf}&tradingDays=3`, setStock), 60000);
+    const period = tf === '1Day' ? 5 * 60_000 : tf === '1Hour' ? 60_000 : 15_000;
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      fetchS('stock', buildStockUrl(sym, tf, days), setStock);
+    };
+    const i1 = setInterval(tick, period);
     return () => clearInterval(i1);
-  }, [sym, tf, fetchS]);
+  }, [sym, tf, days, fetchS, buildStockUrl]);
 
   // ── TradingView Lightweight Chart ──────────────────────────────────────────
   useEffect(() => {
@@ -275,7 +289,25 @@ function DashboardInner() {
             {[['America/New_York','ET'],['America/Chicago','CT'],['America/Denver','MT'],['America/Los_Angeles','PT'],['UTC','UTC']].map(([id, lbl]) => (
               <button key={id} className={`tf ${tz === id ? 'a' : ''}`} onClick={() => setTz(id)}>{lbl}</button>
             ))}
-            <span className="cl">{chartType === 'candle' ? 'Candlestick' : chartType === 'bar' ? 'OHLC Bar' : chartType === 'line' ? 'Line' : chartType === 'area' ? 'Area' : 'Heikin Ashi'} · EMA 8/21/55 · Vol · 3D</span>
+            <span className="cb-sep">|</span>
+            {[[1,'1D'],[5,'5D'],[30,'1M'],[90,'3M'],[180,'6M'],[365,'1Y']].map(([d, lbl]) => (
+              <button key={lbl} className={`tf ${days === d ? 'a' : ''}`} onClick={() => setDays(d)}>{lbl}</button>
+            ))}
+            <input
+              className="cb-days"
+              type="number"
+              min={1}
+              max={1825}
+              value={days || ''}
+              placeholder="3D"
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                setDays(isNaN(v) ? null : Math.max(1, Math.min(1825, v)));
+              }}
+              title="Days of history"
+            />
+            <span className="cb-days-lbl">days</span>
+            <span className="cl">{chartType === 'candle' ? 'Candlestick' : chartType === 'bar' ? 'OHLC Bar' : chartType === 'line' ? 'Line' : chartType === 'area' ? 'Area' : 'Heikin Ashi'} · EMA 8/21/55 · Vol{days ? ` · ${days}d` : ' · 3D'}</span>
             {stock?.lastBarTimestamp && (
               <span className={`chart-freshness fr-${stock.marketStatus || 'closed'}`}>
                 <span className="fr-dot" />
