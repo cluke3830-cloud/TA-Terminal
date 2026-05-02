@@ -1,5 +1,40 @@
 export const dynamic = 'force-dynamic';
 
+// Returns a Date pinned to the most recent realistic market activity:
+//   - During regular session (9:30–16:00 ET, weekdays): now
+//   - During pre/after-hours of a trading day: now (we want fresh extended bars)
+//   - Outside trading hours (overnight, weekends, holidays):
+//     last weekday's 8:00 PM ET (covers post-market through the close window)
+// We approximate the ET offset; DST drift of ~1h doesn't matter since callers
+// pull a multi-day window and Alpaca clamps to available bars.
+function mostRecentMarketAnchor() {
+  const now = new Date();
+  const etOffsetHours = -5;
+  const utcMs = now.getTime();
+  const etMs = utcMs + etOffsetHours * 3600_000;
+  const et = new Date(etMs);
+  const day = et.getUTCDay();         // 0 = Sun, 6 = Sat
+  const hour = et.getUTCHours();
+  const inTradingWindow = day >= 1 && day <= 5 && hour >= 4 && hour < 20;
+  if (inTradingWindow) return now;
+
+  // Walk back to the most recent weekday and pin to 8:00 PM ET (end of post-market)
+  const anchor = new Date(et);
+  while (true) {
+    const d = anchor.getUTCDay();
+    if (d >= 1 && d <= 5) break;
+    anchor.setUTCDate(anchor.getUTCDate() - 1);
+  }
+  // If we're early Monday morning before 4 AM ET, walk back to Friday
+  if (anchor.getUTCDay() === et.getUTCDay() && hour < 4) {
+    do {
+      anchor.setUTCDate(anchor.getUTCDate() - 1);
+    } while (anchor.getUTCDay() === 0 || anchor.getUTCDay() === 6);
+  }
+  anchor.setUTCHours(20, 0, 0, 0);
+  return new Date(anchor.getTime() - etOffsetHours * 3600_000);
+}
+
 // US equity market hours in ET
 function classifyMarket(lastBarMs) {
   const now = new Date();
@@ -38,7 +73,12 @@ export async function GET(req) {
   if (!key || !secret) return Response.json({ error: 'Alpaca keys not set' }, { status: 500 });
 
   try {
-    const end = new Date();
+    // Anchor `end` to the most recent NYSE close (4:00 PM ET, weekday) when the
+    // market isn't currently in regular session. This way 1D/5D/1M selectors
+    // always show the last completed trading day(s) instead of an empty window
+    // on weekends, holidays, or pre-9:30 mornings. Includes 4 hours of after-
+    // hours so post-market bars on the most recent session are visible.
+    const end = mostRecentMarketAnchor();
     const start = new Date(end.getTime() - calendarDays * 864e5);
     const params = new URLSearchParams({
       start: start.toISOString(), end: end.toISOString(),

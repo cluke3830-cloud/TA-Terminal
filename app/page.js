@@ -328,9 +328,39 @@ function DashboardInner() {
             <div className="card-h"><span className="card-t">Earnings</span><span className="badge b-c">FMP</span></div>
             <div className="card-b">
               {ld.earn ? <Load /> : er.earn ? <Err m={er.earn} /> : earn ? <>
-                {earn.calendar?.[0]?.date && (
-                  <div className="ne"><span className="ne-icon">📅</span><div><div className="ne-lbl">Next Earnings</div><div className="ne-date">{earn.calendar[0].date}</div></div></div>
-                )}
+                {(earn.nextEstimate?.date || earn.calendar?.[0]?.date) && (() => {
+                  const ne = earn.nextEstimate || {};
+                  const date = ne.date || earn.calendar[0].date;
+                  const epsAvg = ne.epsAvg;
+                  const epsLow = ne.epsLow;
+                  const epsHigh = ne.epsHigh;
+                  const rev = ne.revenueAvg;
+                  const analysts = ne.analystCount;
+                  return (
+                    <div className="ne" style={{ alignItems: 'flex-start' }}>
+                      <span className="ne-icon">📅</span>
+                      <div style={{ flex: 1 }}>
+                        <div className="ne-lbl">Next Earnings · Analyst Forecast</div>
+                        <div className="ne-date">{date}</div>
+                        {(epsAvg != null || rev != null) && (
+                          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 6, fontFamily: 'var(--mono)', fontSize: 11 }}>
+                            {epsAvg != null && (
+                              <span>EST EPS <b style={{ color: 'var(--neon-cyan)' }}>${epsAvg.toFixed(2)}</b>
+                                {epsLow != null && epsHigh != null && (
+                                  <span style={{ color: 'var(--smoke)', marginLeft: 4 }}>
+                                    (${epsLow.toFixed(2)}–${epsHigh.toFixed(2)})
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                            {rev != null && <span>EST REV <b style={{ color: 'var(--neon-green)' }}>{fmt(rev)}</b></span>}
+                            {analysts != null && <span style={{ color: 'var(--smoke)' }}>{analysts} analysts</span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {earn.history?.length > 0 ? (
                   <table className="dt"><thead><tr><th>Date</th><th>Est.</th><th>Actual</th><th>Surprise</th></tr></thead>
                     <tbody>{earn.history.slice(0, 8).map((e, i) => {
