@@ -395,11 +395,11 @@ function MacroDashboardInner() {
     setTimeout(() => fetchS('fg', '/data_pages/macro/feargreed', setFeargreed), 1500);
   }, [fetchS]);
 
-  // Auto-refresh. Commodities are Yahoo-first now (no rate cap), so we can poll
-  // at 30s to match the server cache TTL and feel live.
+  // Auto-refresh. Commodities use FMP batch as primary (5 min server cache),
+  // so polling faster than that just hits the cache anyway.
   useEffect(() => {
     const f = setInterval(() => fetchS('fx', '/data_pages/macro/fx', setFx), 30 * 60_000);
-    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 30_000);
+    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 5 * 60_000);
     return () => { clearInterval(f); clearInterval(c); };
   }, [fetchS]);
 
