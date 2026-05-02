@@ -172,7 +172,7 @@ function DashboardInner() {
         <div id="sec-chart" className="fi fi1">
           {ld.stock ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Fetching bars..." /></div>
             : er.stock ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Err m={er.stock} /></div>
-            : stock?.bars ? <ChartWithIndicators bars={stock.bars} tf={tf} tz={tz} chartType={chartType} />
+            : stock?.bars ? <ChartWithIndicators bars={stock.bars} tf={tf} tz={tz} chartType={chartType} onTfChange={setTf} onChartTypeChange={setChartType} />
             : <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Waiting for data..." /></div>}
         </div>
 
