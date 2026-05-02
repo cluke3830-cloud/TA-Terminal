@@ -2,6 +2,8 @@
 import './globals.css';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import TimeSeriesAnalysis from './components/TimeSeriesAnalysis';
+import { calcEMA } from './lib/technicalIndicators';
 
 const FOCUS_TO_ID = {
   overview: 'sec-overview',
@@ -39,19 +41,6 @@ function toHA(bars, tz) {
     ha.push({ time: toTzEpoch(t, tz), open: +ho.toFixed(4), high: +Math.max(h, ho, hc).toFixed(4), low: +Math.min(l, ho, hc).toFixed(4), close: +hc.toFixed(4) });
   }
   return ha;
-}
-
-function calcEMA(vals, p) {
-  const out = []; const k = 2 / (p + 1); let prev = null;
-  for (let i = 0; i < vals.length; i++) {
-    if (vals[i] == null) { out.push(null); continue; }
-    if (prev === null) {
-      const w = vals.slice(Math.max(0, i - p + 1), i + 1).filter(v => v != null);
-      if (w.length >= p) { prev = w.reduce((a, b) => a + b, 0) / p; out.push(prev); }
-      else out.push(null);
-    } else { prev = vals[i] * k + prev * (1 - k); out.push(prev); }
-  }
-  return out;
 }
 
 function fmt(n, d = 2) {
@@ -320,6 +309,16 @@ function DashboardInner() {
           {ld.stock ? <div style={{ height: 500 }}><Load t="Fetching bars..." /></div>
             : er.stock ? <div style={{ height: 500 }}><Err m={er.stock} /></div>
             : <div ref={cRef} className="ca" />}
+        </div>
+
+        {/* TIME SERIES ANALYSIS */}
+        <div className="fi fi-tsa">
+          <div className="card">
+            <div className="card-h"><span className="card-t">Time Series Analysis</span><span className="badge b-c">Technical Indicators</span></div>
+            <div className="card-b" style={{ padding: 0 }}>
+              {ld.stock ? <Load /> : er.stock ? <Err m={er.stock} /> : stock?.bars ? <TimeSeriesAnalysis bars={stock.bars} /> : <div className="loading">Waiting for data...</div>}
+            </div>
+          </div>
         </div>
 
         {/* ROW 1: EARNINGS | FINANCIALS */}
