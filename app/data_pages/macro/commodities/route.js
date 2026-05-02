@@ -1,29 +1,28 @@
 import { getCached, setCache } from '../../_cache';
 import YahooFinance from 'yahoo-finance2';
 
-// Yahoo-first for liveness: unlimited, no key, refreshes near-real-time
-// (futures lag ~10 min on free tier). FMP fills gaps when Yahoo misses a
-// symbol. With Yahoo as primary the 250/day FMP cap stops being the
-// bottleneck, letting us drop the cache to 30s for live-feel updates.
+// Yahoo-first for futures (unlimited, no key, ~10 min lag on free tier).
+// Alpaca used for URA/LIT — US equity ETFs get real-time quotes with no delay.
+// FMP fills gaps when Yahoo/Alpaca miss a symbol.
 
 const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const COMM = [
-  { symbol: 'CLUSD', yahoo: 'CL=F', name: 'WTI Crude',     unit: 'USD/bbl',   cat: 'energy' },
-  { symbol: 'BZUSD', yahoo: 'BZ=F', name: 'Brent Crude',   unit: 'USD/bbl',   cat: 'energy' },
-  { symbol: 'NGUSD', yahoo: 'NG=F', name: 'Natural Gas',   unit: 'USD/MMBtu', cat: 'energy' },
-  { symbol: 'HOUSD', yahoo: 'HO=F', name: 'Heating Oil',   unit: 'USD/gal',   cat: 'energy' },
-  { symbol: 'RBUSD', yahoo: 'RB=F', name: 'RBOB Gasoline', unit: 'USD/gal',   cat: 'energy' },
-  { symbol: 'GCUSD', yahoo: 'GC=F', name: 'Gold',          unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'SIUSD', yahoo: 'SI=F', name: 'Silver',        unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'HGUSD', yahoo: 'HG=F', name: 'Copper',        unit: 'USD/lb',    cat: 'metal'  },
-  { symbol: 'PLUSD', yahoo: 'PL=F', name: 'Platinum',      unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'PAUSD', yahoo: 'PA=F', name: 'Palladium',     unit: 'USD/oz',    cat: 'metal'  },
-  { symbol: 'ZCUSD', yahoo: 'ZC=F', name: 'Corn',          unit: 'USD/bu',    cat: 'agri'   },
-  { symbol: 'ZWUSD', yahoo: 'ZW=F', name: 'Wheat',         unit: 'USD/bu',    cat: 'agri'   },
-  { symbol: 'ZSUSD', yahoo: 'ZS=F', name: 'Soybeans',      unit: 'USD/bu',    cat: 'agri'   },
-  { symbol: 'URA',   yahoo: 'URA',  name: 'Uranium (URA ETF)', unit: 'USD',   cat: 'energy' },
-  { symbol: 'LIT',   yahoo: 'LIT',  name: 'Lithium (LIT ETF)', unit: 'USD',   cat: 'metal'  },
+  { symbol: 'CLUSD', yahoo: 'CL=F', name: 'WTI Crude',         unit: 'USD/bbl',   cat: 'energy' },
+  { symbol: 'BZUSD', yahoo: 'BZ=F', name: 'Brent Crude',       unit: 'USD/bbl',   cat: 'energy' },
+  { symbol: 'NGUSD', yahoo: 'NG=F', name: 'Natural Gas',       unit: 'USD/MMBtu', cat: 'energy' },
+  { symbol: 'HOUSD', yahoo: 'HO=F', name: 'Heating Oil',       unit: 'USD/gal',   cat: 'energy' },
+  { symbol: 'RBUSD', yahoo: 'RB=F', name: 'RBOB Gasoline',     unit: 'USD/gal',   cat: 'energy' },
+  { symbol: 'GCUSD', yahoo: 'GC=F', name: 'Gold',              unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'SIUSD', yahoo: 'SI=F', name: 'Silver',            unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'HGUSD', yahoo: 'HG=F', name: 'Copper',            unit: 'USD/lb',    cat: 'metal'  },
+  { symbol: 'PLUSD', yahoo: 'PL=F', name: 'Platinum',          unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'PAUSD', yahoo: 'PA=F', name: 'Palladium',         unit: 'USD/oz',    cat: 'metal'  },
+  { symbol: 'ZCUSD', yahoo: 'ZC=F', name: 'Corn',              unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'ZWUSD', yahoo: 'ZW=F', name: 'Wheat',             unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'ZSUSD', yahoo: 'ZS=F', name: 'Soybeans',          unit: 'USD/bu',    cat: 'agri'   },
+  { symbol: 'URA',   yahoo: 'URA',  alpaca: 'URA', name: 'Uranium (URA ETF)',  unit: 'USD', cat: 'energy' },
+  { symbol: 'LIT',   yahoo: 'LIT',  alpaca: 'LIT', name: 'Lithium (LIT ETF)', unit: 'USD', cat: 'metal'  },
 ];
 
 async function fmpQuote(symbol, key) {
@@ -52,7 +51,7 @@ async function yahooQuoteAndHistory(yahooSymbol) {
   try {
     const oneYearAgo = new Date();
     oneYearAgo.setUTCFullYear(oneYearAgo.getUTCFullYear() - 1);
-    oneYearAgo.setUTCDate(oneYearAgo.getUTCDate() - 30); // small buffer for YTD anchor
+    oneYearAgo.setUTCDate(oneYearAgo.getUTCDate() - 30);
 
     const [q, hist] = await Promise.all([
       yahoo.quote(yahooSymbol).catch(() => null),
@@ -73,6 +72,55 @@ async function yahooQuoteAndHistory(yahooSymbol) {
           }))
           .filter((p) => p.date && p.price != null)
       : null;
+
+    return { quote, history };
+  } catch (_) {
+    return { quote: null, history: null };
+  }
+}
+
+// Alpaca real-time snapshot for US equity ETFs (URA, LIT).
+// Uses the snapshot endpoint: price = latestTrade, change derived from prevDailyBar.
+// Bars endpoint provides 1-year daily history for sparkline/stats.
+async function alpacaQuoteAndHistory(symbol, key, secret) {
+  if (!key || !secret) return { quote: null, history: null };
+  try {
+    const headers = {
+      'APCA-API-KEY-ID': key,
+      'APCA-API-SECRET-KEY': secret,
+    };
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const startDate = oneYearAgo.toISOString().slice(0, 10);
+
+    const [snapRes, barsRes] = await Promise.all([
+      fetch(`https://data.alpaca.markets/v2/stocks/${symbol}/snapshot?feed=iex`, { headers, cache: 'no-store' }),
+      fetch(`https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=1Day&start=${startDate}&limit=365&feed=iex&adjustment=all`, { headers, cache: 'no-store' }),
+    ]);
+
+    let quote = null;
+    if (snapRes.ok) {
+      const snap = await snapRes.json();
+      const price = snap.latestTrade?.p ?? snap.dailyBar?.c ?? snap.latestQuote?.ap ?? null;
+      const prevClose = snap.prevDailyBar?.c ?? null;
+      if (price != null) {
+        const change = prevClose != null ? +(price - prevClose).toFixed(4) : null;
+        const changesPercentage = prevClose != null && prevClose > 0
+          ? +((price - prevClose) / prevClose * 100).toFixed(4)
+          : null;
+        quote = { price, change, changesPercentage };
+      }
+    }
+
+    let history = null;
+    if (barsRes.ok) {
+      const j = await barsRes.json();
+      if (j.bars?.length) {
+        history = j.bars
+          .map((b) => ({ date: b.t.slice(0, 10), price: b.c }))
+          .filter((p) => p.date && p.price != null);
+      }
+    }
 
     return { quote, history };
   } catch (_) {
@@ -114,16 +162,30 @@ async function eiaElectricity(key) {
   } catch (_) { return null; }
 }
 
-async function fetchOne(c, KEY) {
-  // Yahoo first (unlimited, near-real-time).
-  const y = await yahooQuoteAndHistory(c.yahoo);
-  let quote = y.quote;
-  let history = y.history;
-  let source = (quote && quote.price != null) || (history && history.length > 1) ? 'yahoo' : null;
+async function fetchOne(c, fmpKey, alpacaKey, alpacaSecret) {
+  // Alpaca real-time for ETFs, Yahoo for futures
+  let quote = null;
+  let history = null;
+  let source = null;
 
-  // FMP fallback when Yahoo is missing data.
+  if (c.alpaca && alpacaKey && alpacaSecret) {
+    const alp = await alpacaQuoteAndHistory(c.alpaca, alpacaKey, alpacaSecret);
+    quote = alp.quote;
+    history = alp.history;
+    if ((quote && quote.price != null) || (history && history.length > 1)) source = 'alpaca';
+  }
+
+  // Yahoo fallback (also primary for non-ETF futures)
   if (!quote || quote.price == null || !history || history.length < 2) {
-    const [fmpQ, fmpH] = await Promise.all([fmpQuote(c.symbol, KEY), fmpHistory(c.symbol, KEY)]);
+    const y = await yahooQuoteAndHistory(c.yahoo);
+    if ((!quote || quote.price == null) && y.quote?.price != null) quote = y.quote;
+    if ((!history || history.length < 2) && y.history?.length > 1) history = y.history;
+    if (!source && ((quote && quote.price != null) || (history && history.length > 1))) source = 'yahoo';
+  }
+
+  // FMP final fallback
+  if (!quote || quote.price == null || !history || history.length < 2) {
+    const [fmpQ, fmpH] = await Promise.all([fmpQuote(c.symbol, fmpKey), fmpHistory(c.symbol, fmpKey)]);
     if ((!quote || quote.price == null) && fmpQ) {
       quote = { price: fmpQ.price, change: fmpQ.change, changesPercentage: fmpQ.changesPercentage };
     }
@@ -140,9 +202,11 @@ export async function GET() {
 
   const KEY = process.env.FMP_API_KEY;
   const EIA = process.env.EIA_API_KEY;
+  const ALPACA_KEY = process.env.ALPACA_API_KEY;
+  const ALPACA_SECRET = process.env.ALPACA_SECRET_KEY;
 
   try {
-    const results = await Promise.all(COMM.map((c) => fetchOne(c, KEY)));
+    const results = await Promise.all(COMM.map((c) => fetchOne(c, KEY, ALPACA_KEY, ALPACA_SECRET)));
 
     const commodities = results.map(({ c, quote, history, source }) => {
       const stats = deriveStats(history);
@@ -185,7 +249,7 @@ export async function GET() {
     }
 
     const data = { commodities, lastUpdated: new Date().toISOString() };
-    setCache('macro:commodities', data, 30 * 1000); // 30s — live-feel updates
+    setCache('macro:commodities', data, 30 * 1000);
     return Response.json(data);
   } catch (e) {
     return Response.json({ error: e.message || 'Commodity fetch failed' }, { status: 500 });
