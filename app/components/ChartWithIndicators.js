@@ -83,6 +83,7 @@ export default function ChartWithIndicators({
   onChartTypeChange,
   days = null,
   onDaysChange,
+  mainHeight = 400,
 }) {
   const [indicators, setIndicators] = useState({
     sma20: false, sma50: false,
@@ -142,7 +143,7 @@ export default function ChartWithIndicators({
       const chart = LWC.createChart(mainElRef.current, {
         ...baseChartOptions,
         width: mainElRef.current.clientWidth,
-        height: 400,
+        height: mainHeight,
         timeScale: { borderColor: '#282835', timeVisible: true, secondsVisible: false },
       });
       mainChartRef.current = chart;
@@ -605,7 +606,7 @@ export default function ChartWithIndicators({
         .cwi-sep { color: var(--ash); font-size: 14px; margin: 0 4px; user-select: none; }
         .cwi-ind-btn { margin-left: auto; }
         .cwi-wrapper { display: flex; flex-direction: column; }
-        .cwi-main { width: 100%; height: 400px; border-bottom: 1px solid var(--border); }
+        .cwi-main { width: 100%; height: ${mainHeight}px; border-bottom: 1px solid var(--border); }
         .cwi-sub-wrapper { position: relative; border-bottom: 1px solid var(--border); }
         .cwi-sub-wrapper:last-child { border-bottom: none; }
         .cwi-sub-label {
