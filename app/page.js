@@ -2,8 +2,7 @@
 import './globals.css';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import TimeSeriesAnalysis from './components/TimeSeriesAnalysis';
-import { calcEMA } from './lib/technicalIndicators';
+import ChartWithIndicators from './components/ChartWithIndicators';
 
 const FOCUS_TO_ID = {
   overview: 'sec-overview',
@@ -17,31 +16,6 @@ const FOCUS_TO_ID = {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  QUANTUM STOCK TERMINAL — Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
-
-// Convert UTC timestamp to a target timezone by computing the offset
-function toTzEpoch(isoStr, tz) {
-  const d = new Date(isoStr);
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  });
-  const p = {};
-  fmt.formatToParts(d).forEach(x => { p[x.type] = x.value; });
-  const tzAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, p.hour === '24' ? 0 : +p.hour, +p.minute, +p.second);
-  return Math.floor(tzAsUtc / 1000);
-}
-
-function toHA(bars, tz) {
-  if (!bars?.length) return [];
-  const ha = [];
-  for (let i = 0; i < bars.length; i++) {
-    const { o, h, l, c, t } = bars[i];
-    const hc = (o + h + l + c) / 4;
-    const ho = i === 0 ? (o + c) / 2 : (ha[i - 1].open + ha[i - 1].close) / 2;
-    ha.push({ time: toTzEpoch(t, tz), open: +ho.toFixed(4), high: +Math.max(h, ho, hc).toFixed(4), low: +Math.min(l, ho, hc).toFixed(4), close: +hc.toFixed(4) });
-  }
-  return ha;
-}
 
 function fmt(n, d = 2) {
   if (n == null || isNaN(n)) return '—';
@@ -92,9 +66,6 @@ function DashboardInner() {
   const [er, setEr] = useState({});
   const [tab, setTab] = useState('income');
   const [clock, setClock] = useState(fmtTime());
-
-  const cRef = useRef(null);
-  const cInst = useRef(null);
 
   useEffect(() => { const t = setInterval(() => setClock(fmtTime()), 1000); return () => clearInterval(t); }, []);
 
@@ -157,73 +128,6 @@ function DashboardInner() {
     return () => clearInterval(i1);
   }, [sym, tf, days, fetchS, buildStockUrl]);
 
-  // ── TradingView Lightweight Chart ──────────────────────────────────────────
-  useEffect(() => {
-    if (!stock?.bars?.length || !cRef.current) return;
-    let cancelled = false;
-    let ro;
-
-    (async () => {
-      const LWC = await import('lightweight-charts');
-      if (cancelled || !cRef.current) return;
-
-      if (cInst.current) { try { cInst.current.remove(); } catch {} cInst.current = null; }
-
-      const el = cRef.current;
-      const chart = LWC.createChart(el, {
-        width: el.clientWidth, height: 500,
-        layout: { background: { color: '#111117' }, textColor: '#555568', fontFamily: "'Geist Mono',monospace", fontSize: 10 },
-        grid: { vertLines: { color: 'rgba(56,56,78,0.2)' }, horzLines: { color: 'rgba(56,56,78,0.2)' } },
-        crosshair: { vertLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' }, horzLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' } },
-        timeScale: { borderColor: '#282835', timeVisible: true, secondsVisible: false },
-        rightPriceScale: { borderColor: '#282835' },
-      });
-      cInst.current = chart;
-
-      const times = stock.bars.map(b => toTzEpoch(b.t, tz));
-      const closes = stock.bars.map(b => b.c);
-      const ohlcData = stock.bars.map((b, i) => ({ time: times[i], open: b.o, high: b.h, low: b.l, close: b.c }));
-      const closeData = stock.bars.map((b, i) => ({ time: times[i], value: b.c }));
-
-      if (chartType === 'line') {
-        const s = chart.addLineSeries({ color: '#00d4ff', lineWidth: 2, crosshairMarkerVisible: true, crosshairMarkerRadius: 4 });
-        s.setData(closeData);
-      } else if (chartType === 'area') {
-        const s = chart.addAreaSeries({ topColor: 'rgba(0,212,255,0.4)', bottomColor: 'rgba(0,212,255,0.02)', lineColor: '#00d4ff', lineWidth: 2 });
-        s.setData(closeData);
-      } else if (chartType === 'bar') {
-        const s = chart.addBarSeries({ upColor: '#00f59b', downColor: '#ff3355' });
-        s.setData(ohlcData);
-      } else if (chartType === 'candle') {
-        const s = chart.addCandlestickSeries({ upColor: '#00f59b', downColor: '#ff3355', borderUpColor: '#00f59b', borderDownColor: '#ff3355', wickUpColor: '#00f59b', wickDownColor: '#ff3355' });
-        s.setData(ohlcData);
-      } else {
-        const s = chart.addCandlestickSeries({ upColor: '#00f59b', downColor: '#ff3355', borderUpColor: '#00f59b', borderDownColor: '#ff3355', wickUpColor: '#00f59b', wickDownColor: '#ff3355' });
-        s.setData(toHA(stock.bars, tz));
-      }
-
-      const vol = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
-      chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-      vol.setData(stock.bars.map(b => ({ time: toTzEpoch(b.t, tz), value: b.v, color: b.c >= b.o ? 'rgba(0,245,155,0.15)' : 'rgba(255,51,85,0.15)' })));
-
-      const addEma = (p, col, w) => {
-        const vals = calcEMA(closes, p);
-        const s = chart.addLineSeries({ color: col, lineWidth: w, crosshairMarkerVisible: false });
-        s.setData(vals.map((v, i) => v != null ? { time: times[i], value: +v.toFixed(4) } : null).filter(Boolean));
-      };
-      addEma(8, '#00d4ff', 1); addEma(21, '#ff8833', 1); addEma(55, '#9955ff', 2);
-      chart.timeScale().fitContent();
-
-      ro = new ResizeObserver(() => { if (el) chart.applyOptions({ width: el.clientWidth }); });
-      ro.observe(el);
-    })();
-
-    return () => {
-      cancelled = true;
-      if (ro) ro.disconnect();
-      if (cInst.current) { try { cInst.current.remove(); } catch {} cInst.current = null; }
-    };
-  }, [stock, chartType, tz]);
 
   const bars = stock?.bars || [];
   const last = bars[bars.length - 1];
@@ -264,61 +168,12 @@ function DashboardInner() {
           </div>
         </div>
 
-        {/* CHART */}
-        <div id="sec-chart" className="cc fi fi1">
-          <div className="cb">
-            {['1Min','5Min','15Min','1Hour','1Day'].map(t => (
-              <button key={t} className={`tf ${tf === t ? 'a' : ''}`} onClick={() => setTf(t)}>{t.replace('Min','m').replace('Hour','H').replace('Day','D')}</button>
-            ))}
-            <span className="cb-sep">|</span>
-            {[['heikin','HA'],['candle','Candle'],['bar','Bar'],['line','Line'],['area','Area']].map(([id, lbl]) => (
-              <button key={id} className={`tf ${chartType === id ? 'a' : ''}`} onClick={() => setChartType(id)}>{lbl}</button>
-            ))}
-            <span className="cb-sep">|</span>
-            {[['America/New_York','ET'],['America/Chicago','CT'],['America/Denver','MT'],['America/Los_Angeles','PT'],['UTC','UTC']].map(([id, lbl]) => (
-              <button key={id} className={`tf ${tz === id ? 'a' : ''}`} onClick={() => setTz(id)}>{lbl}</button>
-            ))}
-            <span className="cb-sep">|</span>
-            {[[1,'1D'],[5,'5D'],[30,'1M'],[90,'3M'],[180,'6M'],[365,'1Y']].map(([d, lbl]) => (
-              <button key={lbl} className={`tf ${days === d ? 'a' : ''}`} onClick={() => setDays(d)}>{lbl}</button>
-            ))}
-            <input
-              className="cb-days"
-              type="number"
-              min={1}
-              max={1825}
-              value={days || ''}
-              placeholder="3D"
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                setDays(isNaN(v) ? null : Math.max(1, Math.min(1825, v)));
-              }}
-              title="Days of history"
-            />
-            <span className="cb-days-lbl">days</span>
-            <span className="cl">{chartType === 'candle' ? 'Candlestick' : chartType === 'bar' ? 'OHLC Bar' : chartType === 'line' ? 'Line' : chartType === 'area' ? 'Area' : 'Heikin Ashi'} · EMA 8/21/55 · Vol{days ? ` · ${days}d` : ' · 3D'}</span>
-            {stock?.lastBarTimestamp && (
-              <span className={`chart-freshness fr-${stock.marketStatus || 'closed'}`}>
-                <span className="fr-dot" />
-                <span className="fr-label">{stock.marketStatus === 'open' ? 'LIVE' : stock.marketStatus === 'pre' ? 'PRE' : stock.marketStatus === 'post' ? 'POST' : 'CLOSED'}</span>
-                <span className="fr-feed">IEX</span>
-                <span className="fr-time">Last bar {new Date(stock.lastBarTimestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'America/New_York' })} ET</span>
-              </span>
-            )}
-          </div>
-          {ld.stock ? <div style={{ height: 500 }}><Load t="Fetching bars..." /></div>
-            : er.stock ? <div style={{ height: 500 }}><Err m={er.stock} /></div>
-            : <div ref={cRef} className="ca" />}
-        </div>
-
-        {/* TIME SERIES ANALYSIS */}
-        <div className="fi fi-tsa">
-          <div className="card">
-            <div className="card-h"><span className="card-t">Time Series Analysis</span><span className="badge b-c">Technical Indicators</span></div>
-            <div className="card-b" style={{ padding: 0 }}>
-              {ld.stock ? <Load /> : er.stock ? <Err m={er.stock} /> : stock?.bars ? <TimeSeriesAnalysis bars={stock.bars} /> : <div className="loading">Waiting for data...</div>}
-            </div>
-          </div>
+        {/* CHART WITH TRADINGVIEW-STYLE INDICATORS */}
+        <div id="sec-chart" className="fi fi1">
+          {ld.stock ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Fetching bars..." /></div>
+            : er.stock ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Err m={er.stock} /></div>
+            : stock?.bars ? <ChartWithIndicators bars={stock.bars} tf={tf} tz={tz} chartType={chartType} />
+            : <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Waiting for data..." /></div>}
         </div>
 
         {/* ROW 1: EARNINGS | FINANCIALS */}
