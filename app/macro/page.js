@@ -11,6 +11,7 @@ const FOCUS_TO_ID = {
   fx: 'sec-fx',
   banks: 'sec-banks',
   cal: 'sec-cal',
+  flights: 'sec-flights',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -289,6 +290,7 @@ function MacroDashboardInner() {
   const [commodities, setCommodities] = useState(null);
   const [fx, setFx] = useState(null);
   const [flows, setFlows] = useState(null);
+  const [flights, setFlights] = useState(null);
   const [feargreed, setFeargreed] = useState(null);
   const [geoData, setGeoData] = useState(null);
   const [oilData, setOilData] = useState(null);
@@ -389,18 +391,20 @@ function MacroDashboardInner() {
     fetchS('commodities', '/data_pages/macro/commodities', setCommodities);
     fetchS('fx', '/data_pages/macro/fx', setFx);
     fetchS('flows', '/data_pages/macro/flows', setFlows);
+    fetchS('flights', '/data_pages/macro/flights', setFlights);
     fetchS('geo', '/data_pages/macro/geopolitical?view=risk', (d) => setGeoData(d.data));
     fetchS('oil', '/data_pages/macro/geopolitical?view=oil', (d) => setOilData(d.data));
     // FearGreed last (depends on others, server-side aggregator)
     setTimeout(() => fetchS('fg', '/data_pages/macro/feargreed', setFeargreed), 1500);
   }, [fetchS]);
 
-  // Auto-refresh. Commodities use FMP batch as primary (5 min server cache),
-  // so polling faster than that just hits the cache anyway.
+  // Auto-refresh. Commodities are Yahoo-first now (no rate cap), so we can poll
+  // at 30s to match the server cache TTL and feel live.
   useEffect(() => {
+    const fl = setInterval(() => fetchS('flights', '/data_pages/macro/flights', setFlights), 60_000);
     const f = setInterval(() => fetchS('fx', '/data_pages/macro/fx', setFx), 30 * 60_000);
-    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 5 * 60_000);
-    return () => { clearInterval(f); clearInterval(c); };
+    const c = setInterval(() => fetchS('commodities', '/data_pages/macro/commodities', setCommodities), 30_000);
+    return () => { clearInterval(fl); clearInterval(f); clearInterval(c); };
   }, [fetchS]);
 
   // ?focus=<panel> from the command palette: switch the world-map tab if
@@ -408,6 +412,7 @@ function MacroDashboardInner() {
   useEffect(() => {
     const focus = searchParams.get('focus');
     if (!focus || !FOCUS_TO_ID[focus]) return;
+    if (focus === 'flights') setMapTab('flights');
     const el = document.getElementById(FOCUS_TO_ID[focus]);
     if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
   }, [searchParams]);
@@ -446,11 +451,26 @@ function MacroDashboardInner() {
         marker: { line: { color: '#1e1e28', width: 0.4 } },
         colorbar: { title: { text: 'Bbbl', font: CHART_FONT }, tickfont: CHART_FONT, len: 0.6, thickness: 10, x: 0.99, bgcolor: 'rgba(0,0,0,0)' },
       };
+    } else if (mapTab === 'flights' && flights) {
+      trace = {
+        type: 'scattergeo', mode: 'markers',
+        lon: flights.aircraft.map((a) => a.lon),
+        lat: flights.aircraft.map((a) => a.lat),
+        marker: {
+          size: 2,
+          color: flights.aircraft.map((a) => a.alt),
+          colorscale: [[0, '#3377ff'], [0.5, '#00d4ff'], [1, '#00f59b']],
+          opacity: 0.55, line: { width: 0 },
+          colorbar: { title: { text: 'Alt (m)', font: CHART_FONT }, tickfont: CHART_FONT, len: 0.6, thickness: 10, x: 0.99, bgcolor: 'rgba(0,0,0,0)' },
+        },
+        text: flights.aircraft.map((a) => `${a.callsign || 'N/A'}<br>${a.country}<br>Alt: ${a.alt}m · ${a.vel || 0}m/s`),
+        hovertemplate: '%{text}<extra></extra>',
+      };
     } else {
       return;
     }
     window.Plotly.react(mapRef.current, [trace], GEO_LAYOUT, { displayModeBar: false, responsive: true });
-  }, [plotlyReady, mapTab, geoData, oilData]);
+  }, [plotlyReady, mapTab, geoData, oilData, flights]);
 
   // Yield curve render
   useEffect(() => {
@@ -601,12 +621,13 @@ function MacroDashboardInner() {
         </section>
 
         {/* ──────────── 1. WORLD MAP ──────────── */}
-        <section id="sec-worldmap" className="msec fi">
+        <section id="sec-flights" className="msec fi">
           <div className="msec-h">
             <div className="msec-t"><span className="msec-t-num">01</span>World Map · Geopolitics & Satellite</div>
             <div className="wmap-tabs">
               <button className={`mt ${mapTab === 'geo' ? 'a' : ''}`} onClick={() => setMapTab('geo')}>Geopolitical Risk</button>
               <button className={`mt ${mapTab === 'oil' ? 'a' : ''}`} onClick={() => setMapTab('oil')} style={{ marginLeft: 6 }}>Oil Reserves</button>
+              <button className={`mt ${mapTab === 'flights' ? 'a' : ''}`} onClick={() => setMapTab('flights')} style={{ marginLeft: 6 }}>Flight Tracker</button>
             </div>
           </div>
           <div className="wmap-box" ref={mapRef} />
@@ -623,6 +644,13 @@ function MacroDashboardInner() {
                 <span>TOP HOLDER: <b>{oilData[0].country} · {oilData[0].reserves} Bbbl</b></span>
                 <span>OPEC SHARE: <b>~80%</b></span>
                 <span>SOURCE: <b>BP STATISTICAL REVIEW</b></span>
+              </>
+            )}
+            {mapTab === 'flights' && flights && (
+              <>
+                <span>LIVE AIRCRAFT: <b>{flights.count.toLocaleString()}</b></span>
+                <span>GLOBAL TOTAL: <b>{flights.total?.toLocaleString() ?? '—'}</b></span>
+                <span>SOURCE: <b>OPENSKY NETWORK · 60s REFRESH</b></span>
               </>
             )}
           </div>
