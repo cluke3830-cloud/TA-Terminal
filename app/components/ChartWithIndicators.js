@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   calcSMA, calcEMA, calcRSI, calcMACD, calcBollingerBands,
-  calcATR, calcStochastic, filterConsecutiveSessionBars,
+  calcStochastic, filterConsecutiveSessionBars,
 } from '../lib/advancedIndicators';
 import IndicatorPanel from './IndicatorPanel';
 
@@ -55,6 +55,16 @@ const CHART_TYPES = [
   { id: 'area', label: 'Area' },
 ];
 
+const baseChartOptions = {
+  layout: { background: { color: '#111117' }, textColor: '#555568', fontFamily: "'Geist Mono',monospace", fontSize: 10 },
+  grid: { vertLines: { color: 'rgba(56,56,78,0.2)' }, horzLines: { color: 'rgba(56,56,78,0.2)' } },
+  crosshair: {
+    vertLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' },
+    horzLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' },
+  },
+  rightPriceScale: { borderColor: '#282835' },
+};
+
 export default function ChartWithIndicators({
   bars = [],
   tf = '1Min',
@@ -64,32 +74,33 @@ export default function ChartWithIndicators({
   onChartTypeChange,
 }) {
   const [indicators, setIndicators] = useState({
-    sma20: false,
-    sma50: false,
-    ema12: false,
-    ema26: false,
+    sma20: false, sma50: false,
+    ema12: false, ema26: false,
     bb20: false,
-    atr14: false,
-    rsi14: true,
-    macd: true,
-    stoch: false,
+    rsi14: true, macd: true, stoch: false,
     volume: true,
   });
 
   const [showPanel, setShowPanel] = useState(false);
+  const [chartReady, setChartReady] = useState(false);
 
-  // Refs for chart instances - persist across re-renders
+  // DOM container refs (set via ref callbacks in JSX)
+  const mainElRef = useRef(null);
+  const rsiElRef = useRef(null);
+  const macdElRef = useRef(null);
+  const stochElRef = useRef(null);
+
+  // Chart instance refs
   const mainChartRef = useRef(null);
   const rsiChartRef = useRef(null);
   const macdChartRef = useRef(null);
   const stochChartRef = useRef(null);
 
-  // Refs for series - track each indicator series
+  // Series refs
   const mainSeriesRef = useRef(null);
   const volSeriesRef = useRef(null);
-  const indicatorSeriesRef = useRef({}); // { sma20: series, ema12: series, ... }
+  const indSeriesRef = useRef({});  // { sma20: series, ema12: series, bbUpper: ..., etc }
 
-  // Refs for sub-chart series
   const rsiSeriesRef = useRef(null);
   const macdLineRef = useRef(null);
   const macdSignalRef = useRef(null);
@@ -97,112 +108,76 @@ export default function ChartWithIndicators({
   const stochKRef = useRef(null);
   const stochDRef = useRef(null);
 
-  // Track current data state
+  // Cached transformed data
   const dataRef = useRef({ bars: [], times: [], closes: [] });
 
-  // LWC import cache
+  // LWC module cache
   const lwcRef = useRef(null);
 
   const handleToggleIndicator = useCallback((id) => {
     setIndicators(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
-  // ── Build chart instances once ───────────────────────────────────────────
+  // ── 1) Create main chart ONCE on mount ───────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    let mainRO, rsiRO, macdRO, stochRO;
+    let ro;
 
     (async () => {
       const LWC = await import('lightweight-charts');
-      if (cancelled) return;
+      if (cancelled || !mainElRef.current) return;
       lwcRef.current = LWC;
 
-      const baseOptions = {
-        layout: { background: { color: '#111117' }, textColor: '#555568', fontFamily: "'Geist Mono',monospace", fontSize: 10 },
-        grid: { vertLines: { color: 'rgba(56,56,78,0.2)' }, horzLines: { color: 'rgba(56,56,78,0.2)' } },
-        crosshair: { vertLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' }, horzLine: { color: 'rgba(0,212,255,0.25)', labelBackgroundColor: '#18181f' } },
+      const chart = LWC.createChart(mainElRef.current, {
+        ...baseChartOptions,
+        width: mainElRef.current.clientWidth,
+        height: 400,
         timeScale: { borderColor: '#282835', timeVisible: true, secondsVisible: false },
-        rightPriceScale: { borderColor: '#282835' },
-      };
+      });
+      mainChartRef.current = chart;
 
-      // Main chart
-      const mainEl = document.getElementById('main-chart');
-      if (mainEl) {
-        const chart = LWC.createChart(mainEl, { ...baseOptions, width: mainEl.clientWidth, height: 400 });
-        mainChartRef.current = chart;
-        mainRO = new ResizeObserver(() => chart.applyOptions({ width: mainEl.clientWidth }));
-        mainRO.observe(mainEl);
-      }
+      ro = new ResizeObserver(() => {
+        if (mainElRef.current) chart.applyOptions({ width: mainElRef.current.clientWidth });
+      });
+      ro.observe(mainElRef.current);
 
-      // RSI sub-chart
-      const rsiEl = document.getElementById('rsi-chart');
-      if (rsiEl) {
-        const chart = LWC.createChart(rsiEl, { ...baseOptions, width: rsiEl.clientWidth, height: 100, timeScale: { ...baseOptions.timeScale, timeVisible: false } });
-        rsiChartRef.current = chart;
-        rsiRO = new ResizeObserver(() => chart.applyOptions({ width: rsiEl.clientWidth }));
-        rsiRO.observe(rsiEl);
-      }
-
-      // MACD sub-chart
-      const macdEl = document.getElementById('macd-chart');
-      if (macdEl) {
-        const chart = LWC.createChart(macdEl, { ...baseOptions, width: macdEl.clientWidth, height: 100, timeScale: { ...baseOptions.timeScale, timeVisible: false } });
-        macdChartRef.current = chart;
-        macdRO = new ResizeObserver(() => chart.applyOptions({ width: macdEl.clientWidth }));
-        macdRO.observe(macdEl);
-      }
-
-      // Stochastic sub-chart
-      const stochEl = document.getElementById('stoch-chart');
-      if (stochEl) {
-        const chart = LWC.createChart(stochEl, { ...baseOptions, width: stochEl.clientWidth, height: 100, timeScale: { ...baseOptions.timeScale, timeVisible: false } });
-        stochChartRef.current = chart;
-        stochRO = new ResizeObserver(() => chart.applyOptions({ width: stochEl.clientWidth }));
-        stochRO.observe(stochEl);
-      }
+      setChartReady(true);
     })();
 
     return () => {
       cancelled = true;
-      [mainRO, rsiRO, macdRO, stochRO].forEach(ro => ro?.disconnect());
-      [mainChartRef, rsiChartRef, macdChartRef, stochChartRef].forEach(ref => {
-        if (ref.current) {
-          try { ref.current.remove(); } catch {}
-          ref.current = null;
-        }
-      });
+      ro?.disconnect();
+      if (mainChartRef.current) {
+        try { mainChartRef.current.remove(); } catch {}
+        mainChartRef.current = null;
+      }
       mainSeriesRef.current = null;
       volSeriesRef.current = null;
-      indicatorSeriesRef.current = {};
-      rsiSeriesRef.current = null;
-      macdLineRef.current = null;
-      macdSignalRef.current = null;
-      macdHistRef.current = null;
-      stochKRef.current = null;
-      stochDRef.current = null;
+      indSeriesRef.current = {};
+      setChartReady(false);
     };
-  }, [indicators.rsi14, indicators.macd, indicators.stoch]); // Recreate sub-chart containers when toggled
+  }, []);
 
-  // ── Set/update main series based on chart type ───────────────────────────
+  // ── 2) Create/swap main series on chartType change ───────────────────────
   useEffect(() => {
-    if (!mainChartRef.current || !lwcRef.current) return;
+    if (!chartReady || !mainChartRef.current) return;
     const chart = mainChartRef.current;
 
-    // Remove old main series
     if (mainSeriesRef.current) {
       try { chart.removeSeries(mainSeriesRef.current); } catch {}
       mainSeriesRef.current = null;
     }
 
-    // Create new series based on chart type
     if (chartType === 'line') {
       mainSeriesRef.current = chart.addLineSeries({ color: '#00d4ff', lineWidth: 2 });
     } else if (chartType === 'area') {
-      mainSeriesRef.current = chart.addAreaSeries({ topColor: 'rgba(0,212,255,0.4)', bottomColor: 'rgba(0,212,255,0.02)', lineColor: '#00d4ff', lineWidth: 2 });
+      mainSeriesRef.current = chart.addAreaSeries({
+        topColor: 'rgba(0,212,255,0.4)', bottomColor: 'rgba(0,212,255,0.02)',
+        lineColor: '#00d4ff', lineWidth: 2,
+      });
     } else if (chartType === 'bar') {
       mainSeriesRef.current = chart.addBarSeries({ upColor: '#00f59b', downColor: '#ff3355' });
     } else {
-      // candle and heikin both use candlestick series
       mainSeriesRef.current = chart.addCandlestickSeries({
         upColor: '#00f59b', downColor: '#ff3355',
         borderUpColor: '#00f59b', borderDownColor: '#ff3355',
@@ -210,310 +185,360 @@ export default function ChartWithIndicators({
       });
     }
 
-    // Apply current data if available
-    if (dataRef.current.bars.length > 0) {
-      applyMainData(dataRef.current.bars, dataRef.current.times);
+    // Apply existing data if we have it
+    const { bars: gb, times } = dataRef.current;
+    if (gb.length > 0) {
+      if (chartType === 'line' || chartType === 'area') {
+        mainSeriesRef.current.setData(gb.map((b, i) => ({ time: times[i], value: b.c })));
+      } else if (chartType === 'heikin') {
+        mainSeriesRef.current.setData(toHA(gb, times));
+      } else {
+        mainSeriesRef.current.setData(gb.map((b, i) => ({ time: times[i], open: b.o, high: b.h, low: b.l, close: b.c })));
+      }
     }
-  }, [chartType]);
+  }, [chartType, chartReady]);
 
-  // ── Apply data to main series helper ─────────────────────────────────────
-  const applyMainData = useCallback((gaplessBars, times) => {
-    if (!mainSeriesRef.current) return;
-
-    if (chartType === 'line' || chartType === 'area') {
-      mainSeriesRef.current.setData(gaplessBars.map((b, i) => ({ time: times[i], value: b.c })));
-    } else if (chartType === 'heikin') {
-      mainSeriesRef.current.setData(toHA(gaplessBars, times));
-    } else {
-      mainSeriesRef.current.setData(gaplessBars.map((b, i) => ({ time: times[i], open: b.o, high: b.h, low: b.l, close: b.c })));
-    }
-  }, [chartType]);
-
-  // ── Update data when bars change ─────────────────────────────────────────
+  // ── 3) Update data when bars change ──────────────────────────────────────
   useEffect(() => {
-    if (!bars || bars.length === 0 || !mainChartRef.current || !mainSeriesRef.current) return;
+    if (!chartReady || !bars || bars.length === 0) return;
 
-    const gaplessBars = filterConsecutiveSessionBars(bars, tf);
-    const times = gaplessBars.map(b => toTzEpoch(b.t, tz));
-    const closes = gaplessBars.map(b => b.c);
+    const gb = filterConsecutiveSessionBars(bars, tf);
+    const times = gb.map(b => toTzEpoch(b.t, tz));
+    const closes = gb.map(b => b.c);
+    dataRef.current = { bars: gb, times, closes };
 
-    dataRef.current = { bars: gaplessBars, times, closes };
+    // Main series
+    if (mainSeriesRef.current) {
+      if (chartType === 'line' || chartType === 'area') {
+        mainSeriesRef.current.setData(gb.map((b, i) => ({ time: times[i], value: b.c })));
+      } else if (chartType === 'heikin') {
+        mainSeriesRef.current.setData(toHA(gb, times));
+      } else {
+        mainSeriesRef.current.setData(gb.map((b, i) => ({ time: times[i], open: b.o, high: b.h, low: b.l, close: b.c })));
+      }
+    }
 
-    // Update main series
-    applyMainData(gaplessBars, times);
-
-    // Update volume
-    if (indicators.volume && volSeriesRef.current) {
-      volSeriesRef.current.setData(gaplessBars.map((b, i) => ({
+    // Volume
+    if (volSeriesRef.current) {
+      volSeriesRef.current.setData(gb.map((b, i) => ({
         time: times[i], value: b.v,
         color: b.c >= b.o ? 'rgba(0,245,155,0.15)' : 'rgba(255,51,85,0.15)',
       })));
     }
 
-    // Update overlay indicators
-    Object.entries(indicatorSeriesRef.current).forEach(([id, series]) => {
-      if (!series) return;
-      updateIndicatorData(id, closes, times);
-    });
-
-    // Update sub-chart indicators
-    if (indicators.rsi14 && rsiSeriesRef.current) {
-      const rsi = calcRSI(closes, 14);
-      rsiSeriesRef.current.setData(rsi.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
+    // Overlay indicators
+    if (indSeriesRef.current.sma20) {
+      const v = calcSMA(closes, 20);
+      indSeriesRef.current.sma20.setData(v.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+    }
+    if (indSeriesRef.current.sma50) {
+      const v = calcSMA(closes, 50);
+      indSeriesRef.current.sma50.setData(v.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+    }
+    if (indSeriesRef.current.ema12) {
+      const v = calcEMA(closes, 12);
+      indSeriesRef.current.ema12.setData(v.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+    }
+    if (indSeriesRef.current.ema26) {
+      const v = calcEMA(closes, 26);
+      indSeriesRef.current.ema26.setData(v.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+    }
+    if (indSeriesRef.current.bbUpper) {
+      const bb = calcBollingerBands(closes, 20, 2);
+      indSeriesRef.current.bbUpper.setData(bb.map((x, i) => x.upper ? { time: times[i], value: x.upper } : null).filter(Boolean));
+      indSeriesRef.current.bbMiddle?.setData(bb.map((x, i) => x.middle ? { time: times[i], value: x.middle } : null).filter(Boolean));
+      indSeriesRef.current.bbLower?.setData(bb.map((x, i) => x.lower ? { time: times[i], value: x.lower } : null).filter(Boolean));
     }
 
-    if (indicators.macd && macdLineRef.current) {
-      const macd = calcMACD(closes, 12, 26, 9);
-      macdLineRef.current.setData(macd.macdLine.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
-      if (macdSignalRef.current) {
-        macdSignalRef.current.setData(macd.signalLine.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
-      }
-      if (macdHistRef.current) {
-        macdHistRef.current.setData(macd.histogram.map((v, i) => v ? {
-          time: times[i], value: v,
-          color: v > 0 ? 'rgba(0,245,155,0.4)' : 'rgba(255,51,85,0.4)',
-        } : null).filter(Boolean));
-      }
+    // Sub-charts
+    if (rsiSeriesRef.current) {
+      const r = calcRSI(closes, 14);
+      rsiSeriesRef.current.setData(r.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+    }
+    if (macdLineRef.current) {
+      const m = calcMACD(closes, 12, 26, 9);
+      macdLineRef.current.setData(m.macdLine.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+      macdSignalRef.current?.setData(m.signalLine.map((x, i) => x ? { time: times[i], value: x } : null).filter(Boolean));
+      macdHistRef.current?.setData(m.histogram.map((x, i) => x ? {
+        time: times[i], value: x,
+        color: x > 0 ? 'rgba(0,245,155,0.4)' : 'rgba(255,51,85,0.4)',
+      } : null).filter(Boolean));
+    }
+    if (stochKRef.current) {
+      const s = calcStochastic(closes, 14, 3, 3);
+      stochKRef.current.setData(s.map((x, i) => x.k != null ? { time: times[i], value: x.k } : null).filter(Boolean));
+      stochDRef.current?.setData(s.map((x, i) => x.d != null ? { time: times[i], value: x.d } : null).filter(Boolean));
     }
 
-    if (indicators.stoch && stochKRef.current) {
-      const stoch = calcStochastic(closes, 14, 3, 3);
-      stochKRef.current.setData(stoch.map((v, i) => v.k ? { time: times[i], value: v.k } : null).filter(Boolean));
-      if (stochDRef.current) {
-        stochDRef.current.setData(stoch.map((v, i) => v.d ? { time: times[i], value: v.d } : null).filter(Boolean));
-      }
+    // Fit content only on first data load (no visible range yet)
+    if (mainChartRef.current) {
+      const range = mainChartRef.current.timeScale().getVisibleRange();
+      if (!range) mainChartRef.current.timeScale().fitContent();
     }
+  }, [bars, tf, tz, chartType, chartReady]);
 
-    // Only fit content on initial load, not on updates
-    if (gaplessBars.length > 0 && mainChartRef.current) {
-      const visibleRange = mainChartRef.current.timeScale().getVisibleRange();
-      if (!visibleRange) {
-        mainChartRef.current.timeScale().fitContent();
-      }
-    }
-  }, [bars, tf, tz, applyMainData, indicators.volume, indicators.rsi14, indicators.macd, indicators.stoch]);
-
-  const updateIndicatorData = useCallback((id, closes, times) => {
-    const series = indicatorSeriesRef.current[id];
-    if (!series) return;
-
-    if (id === 'sma20') {
-      const sma = calcSMA(closes, 20);
-      series.setData(sma.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
-    } else if (id === 'sma50') {
-      const sma = calcSMA(closes, 50);
-      series.setData(sma.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
-    } else if (id === 'ema12') {
-      const ema = calcEMA(closes, 12);
-      series.setData(ema.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
-    } else if (id === 'ema26') {
-      const ema = calcEMA(closes, 26);
-      series.setData(ema.map((v, i) => v ? { time: times[i], value: v } : null).filter(Boolean));
-    }
-  }, []);
-
-  // ── Volume toggle ────────────────────────────────────────────────────────
+  // ── 4) Volume toggle ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mainChartRef.current) return;
+    if (!chartReady || !mainChartRef.current) return;
     const chart = mainChartRef.current;
 
     if (indicators.volume) {
       if (!volSeriesRef.current) {
-        volSeriesRef.current = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol', color: 'rgba(58,122,204,0.3)' });
+        volSeriesRef.current = chart.addHistogramSeries({
+          priceFormat: { type: 'volume' },
+          priceScaleId: 'vol',
+          color: 'rgba(58,122,204,0.3)',
+        });
         chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
-        if (dataRef.current.bars.length > 0) {
-          const { bars: gb, times } = dataRef.current;
+        const { bars: gb, times } = dataRef.current;
+        if (gb.length > 0) {
           volSeriesRef.current.setData(gb.map((b, i) => ({
             time: times[i], value: b.v,
             color: b.c >= b.o ? 'rgba(0,245,155,0.15)' : 'rgba(255,51,85,0.15)',
           })));
         }
       }
-    } else {
-      if (volSeriesRef.current) {
-        try { chart.removeSeries(volSeriesRef.current); } catch {}
-        volSeriesRef.current = null;
-      }
+    } else if (volSeriesRef.current) {
+      try { chart.removeSeries(volSeriesRef.current); } catch {}
+      volSeriesRef.current = null;
     }
-  }, [indicators.volume]);
+  }, [indicators.volume, chartReady]);
 
-  // ── Toggle overlay indicators (SMA, EMA, BB) ─────────────────────────────
+  // ── 5) Overlay indicator toggles (SMA, EMA, BB) ──────────────────────────
   useEffect(() => {
-    if (!mainChartRef.current) return;
+    if (!chartReady || !mainChartRef.current) return;
     const chart = mainChartRef.current;
 
     const overlayDefs = {
-      sma20: { color: '#ff8833', lineWidth: 1, type: 'line' },
-      sma50: { color: '#9955ff', lineWidth: 1, type: 'line' },
-      ema12: { color: '#00d4ff', lineWidth: 1, type: 'line' },
-      ema26: { color: '#00f59b', lineWidth: 1, type: 'line' },
+      sma20: { color: '#ff8833', lineWidth: 1, period: 20, fn: calcSMA },
+      sma50: { color: '#9955ff', lineWidth: 1, period: 50, fn: calcSMA },
+      ema12: { color: '#00d4ff', lineWidth: 1, period: 12, fn: calcEMA },
+      ema26: { color: '#00f59b', lineWidth: 1, period: 26, fn: calcEMA },
     };
 
     Object.entries(overlayDefs).forEach(([id, def]) => {
       if (indicators[id]) {
-        if (!indicatorSeriesRef.current[id]) {
+        if (!indSeriesRef.current[id]) {
           const series = chart.addLineSeries({ color: def.color, lineWidth: def.lineWidth, crosshairMarkerVisible: false });
-          indicatorSeriesRef.current[id] = series;
+          indSeriesRef.current[id] = series;
           if (dataRef.current.closes.length > 0) {
-            updateIndicatorData(id, dataRef.current.closes, dataRef.current.times);
+            const v = def.fn(dataRef.current.closes, def.period);
+            series.setData(v.map((x, i) => x ? { time: dataRef.current.times[i], value: x } : null).filter(Boolean));
           }
         }
-      } else {
-        if (indicatorSeriesRef.current[id]) {
-          try { chart.removeSeries(indicatorSeriesRef.current[id]); } catch {}
-          delete indicatorSeriesRef.current[id];
-        }
+      } else if (indSeriesRef.current[id]) {
+        try { chart.removeSeries(indSeriesRef.current[id]); } catch {}
+        delete indSeriesRef.current[id];
       }
     });
 
-    // Bollinger Bands (3 series)
+    // Bollinger Bands
     if (indicators.bb20) {
-      if (!indicatorSeriesRef.current.bbUpper) {
-        const upper = chart.addLineSeries({ color: '#ff8833', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false });
-        const middle = chart.addLineSeries({ color: '#ff8833', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false });
-        const lower = chart.addLineSeries({ color: '#ff8833', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false });
-        indicatorSeriesRef.current.bbUpper = upper;
-        indicatorSeriesRef.current.bbMiddle = middle;
-        indicatorSeriesRef.current.bbLower = lower;
+      if (!indSeriesRef.current.bbUpper) {
+        indSeriesRef.current.bbUpper = chart.addLineSeries({ color: '#ff8833', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false });
+        indSeriesRef.current.bbMiddle = chart.addLineSeries({ color: '#ff8833', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false });
+        indSeriesRef.current.bbLower = chart.addLineSeries({ color: '#ff8833', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false });
         if (dataRef.current.closes.length > 0) {
           const bb = calcBollingerBands(dataRef.current.closes, 20, 2);
-          upper.setData(bb.map((v, i) => v.upper ? { time: dataRef.current.times[i], value: v.upper } : null).filter(Boolean));
-          middle.setData(bb.map((v, i) => v.middle ? { time: dataRef.current.times[i], value: v.middle } : null).filter(Boolean));
-          lower.setData(bb.map((v, i) => v.lower ? { time: dataRef.current.times[i], value: v.lower } : null).filter(Boolean));
+          const t = dataRef.current.times;
+          indSeriesRef.current.bbUpper.setData(bb.map((x, i) => x.upper ? { time: t[i], value: x.upper } : null).filter(Boolean));
+          indSeriesRef.current.bbMiddle.setData(bb.map((x, i) => x.middle ? { time: t[i], value: x.middle } : null).filter(Boolean));
+          indSeriesRef.current.bbLower.setData(bb.map((x, i) => x.lower ? { time: t[i], value: x.lower } : null).filter(Boolean));
         }
       }
     } else {
-      ['bbUpper', 'bbMiddle', 'bbLower'].forEach(key => {
-        if (indicatorSeriesRef.current[key]) {
-          try { chart.removeSeries(indicatorSeriesRef.current[key]); } catch {}
-          delete indicatorSeriesRef.current[key];
+      ['bbUpper', 'bbMiddle', 'bbLower'].forEach(k => {
+        if (indSeriesRef.current[k]) {
+          try { chart.removeSeries(indSeriesRef.current[k]); } catch {}
+          delete indSeriesRef.current[k];
         }
       });
     }
-  }, [indicators.sma20, indicators.sma50, indicators.ema12, indicators.ema26, indicators.bb20, updateIndicatorData]);
+  }, [indicators.sma20, indicators.sma50, indicators.ema12, indicators.ema26, indicators.bb20, chartReady]);
 
-  // ── RSI sub-chart series ─────────────────────────────────────────────────
+  // ── 6) RSI sub-chart lifecycle ───────────────────────────────────────────
   useEffect(() => {
-    if (!indicators.rsi14 || !rsiChartRef.current) return;
-    const chart = rsiChartRef.current;
+    if (!indicators.rsi14 || !chartReady) return;
 
-    if (!rsiSeriesRef.current) {
-      rsiSeriesRef.current = chart.addLineSeries({ color: '#00d4ff', lineWidth: 1.5 });
+    let ro;
+    (async () => {
+      const LWC = lwcRef.current;
+      if (!LWC || !rsiElRef.current) return;
+
+      const chart = LWC.createChart(rsiElRef.current, {
+        ...baseChartOptions,
+        width: rsiElRef.current.clientWidth,
+        height: 100,
+        timeScale: { borderColor: '#282835', timeVisible: false },
+      });
+      rsiChartRef.current = chart;
+
+      const series = chart.addLineSeries({ color: '#00d4ff', lineWidth: 1.5 });
+      rsiSeriesRef.current = series;
+
       if (dataRef.current.closes.length > 0) {
-        const rsi = calcRSI(dataRef.current.closes, 14);
-        rsiSeriesRef.current.setData(rsi.map((v, i) => v ? { time: dataRef.current.times[i], value: v } : null).filter(Boolean));
+        const r = calcRSI(dataRef.current.closes, 14);
+        series.setData(r.map((x, i) => x ? { time: dataRef.current.times[i], value: x } : null).filter(Boolean));
       }
-    }
-  }, [indicators.rsi14]);
 
-  // ── MACD sub-chart series ────────────────────────────────────────────────
+      ro = new ResizeObserver(() => {
+        if (rsiElRef.current) chart.applyOptions({ width: rsiElRef.current.clientWidth });
+      });
+      ro.observe(rsiElRef.current);
+    })();
+
+    return () => {
+      ro?.disconnect();
+      if (rsiChartRef.current) {
+        try { rsiChartRef.current.remove(); } catch {}
+        rsiChartRef.current = null;
+      }
+      rsiSeriesRef.current = null;
+    };
+  }, [indicators.rsi14, chartReady]);
+
+  // ── 7) MACD sub-chart lifecycle ──────────────────────────────────────────
   useEffect(() => {
-    if (!indicators.macd || !macdChartRef.current) return;
-    const chart = macdChartRef.current;
+    if (!indicators.macd || !chartReady) return;
 
-    if (!macdLineRef.current) {
+    let ro;
+    (async () => {
+      const LWC = lwcRef.current;
+      if (!LWC || !macdElRef.current) return;
+
+      const chart = LWC.createChart(macdElRef.current, {
+        ...baseChartOptions,
+        width: macdElRef.current.clientWidth,
+        height: 100,
+        timeScale: { borderColor: '#282835', timeVisible: false },
+      });
+      macdChartRef.current = chart;
+
       macdLineRef.current = chart.addLineSeries({ color: '#00d4ff', lineWidth: 1.5 });
       macdSignalRef.current = chart.addLineSeries({ color: '#ff8833', lineWidth: 1 });
       macdHistRef.current = chart.addHistogramSeries({ color: '#00f59b' });
 
       if (dataRef.current.closes.length > 0) {
-        const macd = calcMACD(dataRef.current.closes, 12, 26, 9);
+        const m = calcMACD(dataRef.current.closes, 12, 26, 9);
         const t = dataRef.current.times;
-        macdLineRef.current.setData(macd.macdLine.map((v, i) => v ? { time: t[i], value: v } : null).filter(Boolean));
-        macdSignalRef.current.setData(macd.signalLine.map((v, i) => v ? { time: t[i], value: v } : null).filter(Boolean));
-        macdHistRef.current.setData(macd.histogram.map((v, i) => v ? {
-          time: t[i], value: v,
-          color: v > 0 ? 'rgba(0,245,155,0.4)' : 'rgba(255,51,85,0.4)',
+        macdLineRef.current.setData(m.macdLine.map((x, i) => x ? { time: t[i], value: x } : null).filter(Boolean));
+        macdSignalRef.current.setData(m.signalLine.map((x, i) => x ? { time: t[i], value: x } : null).filter(Boolean));
+        macdHistRef.current.setData(m.histogram.map((x, i) => x ? {
+          time: t[i], value: x,
+          color: x > 0 ? 'rgba(0,245,155,0.4)' : 'rgba(255,51,85,0.4)',
         } : null).filter(Boolean));
       }
-    }
-  }, [indicators.macd]);
 
-  // ── Stochastic sub-chart series ──────────────────────────────────────────
+      ro = new ResizeObserver(() => {
+        if (macdElRef.current) chart.applyOptions({ width: macdElRef.current.clientWidth });
+      });
+      ro.observe(macdElRef.current);
+    })();
+
+    return () => {
+      ro?.disconnect();
+      if (macdChartRef.current) {
+        try { macdChartRef.current.remove(); } catch {}
+        macdChartRef.current = null;
+      }
+      macdLineRef.current = null;
+      macdSignalRef.current = null;
+      macdHistRef.current = null;
+    };
+  }, [indicators.macd, chartReady]);
+
+  // ── 8) Stochastic sub-chart lifecycle ────────────────────────────────────
   useEffect(() => {
-    if (!indicators.stoch || !stochChartRef.current) return;
-    const chart = stochChartRef.current;
+    if (!indicators.stoch || !chartReady) return;
 
-    if (!stochKRef.current) {
+    let ro;
+    (async () => {
+      const LWC = lwcRef.current;
+      if (!LWC || !stochElRef.current) return;
+
+      const chart = LWC.createChart(stochElRef.current, {
+        ...baseChartOptions,
+        width: stochElRef.current.clientWidth,
+        height: 100,
+        timeScale: { borderColor: '#282835', timeVisible: false },
+      });
+      stochChartRef.current = chart;
+
       stochKRef.current = chart.addLineSeries({ color: '#00d4ff', lineWidth: 1.5 });
       stochDRef.current = chart.addLineSeries({ color: '#ff8833', lineWidth: 1 });
 
       if (dataRef.current.closes.length > 0) {
-        const stoch = calcStochastic(dataRef.current.closes, 14, 3, 3);
+        const s = calcStochastic(dataRef.current.closes, 14, 3, 3);
         const t = dataRef.current.times;
-        stochKRef.current.setData(stoch.map((v, i) => v.k ? { time: t[i], value: v.k } : null).filter(Boolean));
-        stochDRef.current.setData(stoch.map((v, i) => v.d ? { time: t[i], value: v.d } : null).filter(Boolean));
+        stochKRef.current.setData(s.map((x, i) => x.k != null ? { time: t[i], value: x.k } : null).filter(Boolean));
+        stochDRef.current.setData(s.map((x, i) => x.d != null ? { time: t[i], value: x.d } : null).filter(Boolean));
       }
-    }
-  }, [indicators.stoch]);
+
+      ro = new ResizeObserver(() => {
+        if (stochElRef.current) chart.applyOptions({ width: stochElRef.current.clientWidth });
+      });
+      ro.observe(stochElRef.current);
+    })();
+
+    return () => {
+      ro?.disconnect();
+      if (stochChartRef.current) {
+        try { stochChartRef.current.remove(); } catch {}
+        stochChartRef.current = null;
+      }
+      stochKRef.current = null;
+      stochDRef.current = null;
+    };
+  }, [indicators.stoch, chartReady]);
 
   const activeCount = Object.values(indicators).filter(Boolean).length;
 
   return (
     <div className="cwi-container">
       <div className="cwi-controls">
-        {/* Timeframe Switch */}
         <div className="cwi-group">
           {TIMEFRAMES.map(t => (
-            <button
-              key={t.id}
-              className={`cwi-tf ${tf === t.id ? 'a' : ''}`}
-              onClick={() => onTfChange?.(t.id)}
-            >
+            <button key={t.id} className={`cwi-tf ${tf === t.id ? 'a' : ''}`} onClick={() => onTfChange?.(t.id)}>
               {t.label}
             </button>
           ))}
         </div>
-
         <span className="cwi-sep">|</span>
-
-        {/* Chart Type Switch */}
         <div className="cwi-group">
           {CHART_TYPES.map(c => (
-            <button
-              key={c.id}
-              className={`cwi-tf ${chartType === c.id ? 'a' : ''}`}
-              onClick={() => onChartTypeChange?.(c.id)}
-            >
+            <button key={c.id} className={`cwi-tf ${chartType === c.id ? 'a' : ''}`} onClick={() => onChartTypeChange?.(c.id)}>
               {c.label}
             </button>
           ))}
         </div>
-
         <span className="cwi-sep">|</span>
-
-        <button
-          className="cwi-tf cwi-ind-btn"
-          onClick={() => setShowPanel(!showPanel)}
-          title="Toggle Indicator Panel"
-        >
+        <button className="cwi-tf cwi-ind-btn" onClick={() => setShowPanel(!showPanel)} title="Toggle Indicator Panel">
           ⚙ Indicators ({activeCount})
         </button>
-
         {showPanel && (
           <IndicatorPanel indicators={indicators} onToggle={handleToggleIndicator} />
         )}
       </div>
 
       <div className="cwi-wrapper">
-        <div id="main-chart" className="cwi-main" />
+        <div ref={mainElRef} className="cwi-main" />
         {indicators.rsi14 && (
           <div className="cwi-sub-wrapper">
             <div className="cwi-sub-label">RSI (14)</div>
-            <div id="rsi-chart" className="cwi-sub" />
+            <div ref={rsiElRef} className="cwi-sub" />
           </div>
         )}
         {indicators.macd && (
           <div className="cwi-sub-wrapper">
             <div className="cwi-sub-label">MACD (12, 26, 9)</div>
-            <div id="macd-chart" className="cwi-sub" />
+            <div ref={macdElRef} className="cwi-sub" />
           </div>
         )}
         {indicators.stoch && (
           <div className="cwi-sub-wrapper">
             <div className="cwi-sub-label">Stochastic (14, 3, 3)</div>
-            <div id="stoch-chart" className="cwi-sub" />
+            <div ref={stochElRef} className="cwi-sub" />
           </div>
         )}
       </div>
@@ -537,10 +562,7 @@ export default function ChartWithIndicators({
           position: relative;
           flex-wrap: wrap;
         }
-        .cwi-group {
-          display: flex;
-          gap: 4px;
-        }
+        .cwi-group { display: flex; gap: 4px; }
         .cwi-tf {
           height: 26px;
           padding: 0 12px;
@@ -554,41 +576,19 @@ export default function ChartWithIndicators({
           cursor: pointer;
           transition: all 0.15s;
         }
-        .cwi-tf:hover {
-          border-color: var(--neon-cyan);
-          color: var(--mist);
-        }
+        .cwi-tf:hover { border-color: var(--neon-cyan); color: var(--mist); }
         .cwi-tf.a {
           background: var(--neon-cyan);
           border-color: var(--neon-cyan);
           color: var(--void);
           font-weight: 700;
         }
-        .cwi-sep {
-          color: var(--ash);
-          font-size: 14px;
-          margin: 0 4px;
-          user-select: none;
-        }
-        .cwi-ind-btn {
-          margin-left: auto;
-        }
-        .cwi-wrapper {
-          display: flex;
-          flex-direction: column;
-        }
-        .cwi-main {
-          width: 100%;
-          height: 400px;
-          border-bottom: 1px solid var(--border);
-        }
-        .cwi-sub-wrapper {
-          position: relative;
-          border-bottom: 1px solid var(--border);
-        }
-        .cwi-sub-wrapper:last-child {
-          border-bottom: none;
-        }
+        .cwi-sep { color: var(--ash); font-size: 14px; margin: 0 4px; user-select: none; }
+        .cwi-ind-btn { margin-left: auto; }
+        .cwi-wrapper { display: flex; flex-direction: column; }
+        .cwi-main { width: 100%; height: 400px; border-bottom: 1px solid var(--border); }
+        .cwi-sub-wrapper { position: relative; border-bottom: 1px solid var(--border); }
+        .cwi-sub-wrapper:last-child { border-bottom: none; }
         .cwi-sub-label {
           position: absolute;
           top: 4px;
@@ -600,10 +600,7 @@ export default function ChartWithIndicators({
           pointer-events: none;
           letter-spacing: 0.5px;
         }
-        .cwi-sub {
-          width: 100%;
-          height: 100px;
-        }
+        .cwi-sub { width: 100%; height: 100px; }
       `}</style>
     </div>
   );
