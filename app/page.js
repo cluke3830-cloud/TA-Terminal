@@ -48,13 +48,13 @@ function DashboardInner() {
   const router = useRouter();
   const initialSym = searchParams.get('sym')?.toUpperCase() || 'NVDA';
   const initialTf = searchParams.get('tf') || '1Min';
-  const initialDays = parseInt(searchParams.get('days') || '0', 10) || null;
+  const initialDays = parseInt(searchParams.get('days') || '0', 10) || 3;
 
   const [sym, setSym] = useState(initialSym);
   const [tf, setTf] = useState(initialTf);
   const [chartType, setChartType] = useState('heikin');
   const [tz, setTz] = useState('America/New_York');
-  const [days, setDays] = useState(initialDays); // null = use default (3 trading days)
+  const [days, setDays] = useState(initialDays); // 3 = default (3 trading days)
 
   const [stock, setStock] = useState(null);
   const [earn, setEarn] = useState(null);
@@ -65,7 +65,7 @@ function DashboardInner() {
   const [ld, setLd] = useState({});
   const [er, setEr] = useState({});
   const [tab, setTab] = useState('income');
-  const [clock, setClock] = useState(fmtTime());
+  const [clock, setClock] = useState('');
 
   useEffect(() => { const t = setInterval(() => setClock(fmtTime()), 1000); return () => clearInterval(t); }, []);
 
@@ -86,8 +86,9 @@ function DashboardInner() {
   }, []);
 
   const buildStockUrl = useCallback((s, t, d) => {
-    if (d && d > 0) return `/data_pages/stock?symbol=${s}&timeframe=${t}&days=${d}`;
-    return `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=3`;
+    if (!d || d <= 0) return `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=3`;
+    if (d <= 5) return `/data_pages/stock?symbol=${s}&timeframe=${t}&tradingDays=${d}`;
+    return `/data_pages/stock?symbol=${s}&timeframe=${t}&days=${d}`;
   }, []);
 
   const fetchAll = useCallback((s, t, d) => {
@@ -107,7 +108,7 @@ function DashboardInner() {
     const urlSym = searchParams.get('sym')?.toUpperCase();
     const urlTf = searchParams.get('tf');
     const urlFocus = searchParams.get('focus');
-    const urlDays = parseInt(searchParams.get('days') || '0', 10) || null;
+    const urlDays = parseInt(searchParams.get('days') || '0', 10) || 3;
     if (urlSym && urlSym !== sym) setSym(urlSym);
     if (urlTf && urlTf !== tf) setTf(urlTf);
     if (urlDays !== days) setDays(urlDays);
@@ -170,10 +171,13 @@ function DashboardInner() {
 
         {/* CHART WITH TRADINGVIEW-STYLE INDICATORS */}
         <div id="sec-chart" className="fi fi1">
-          {ld.stock ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Fetching bars..." /></div>
-            : er.stock ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Err m={er.stock} /></div>
-            : stock?.bars ? <ChartWithIndicators bars={stock.bars} tf={tf} tz={tz} chartType={chartType} onTfChange={setTf} onChartTypeChange={setChartType} />
-            : <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Waiting for data..." /></div>}
+          {stock?.bars
+            ? <ChartWithIndicators bars={stock.bars} tf={tf} tz={tz} chartType={chartType} onTfChange={setTf} onChartTypeChange={setChartType} days={days} onDaysChange={setDays} />
+            : ld.stock
+              ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Fetching bars..." /></div>
+              : er.stock
+                ? <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Err m={er.stock} /></div>
+                : <div style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Load t="Waiting for data..." /></div>}
         </div>
 
         {/* ROW 1: EARNINGS | FINANCIALS */}

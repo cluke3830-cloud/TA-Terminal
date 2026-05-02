@@ -55,6 +55,15 @@ const CHART_TYPES = [
   { id: 'area', label: 'Area' },
 ];
 
+const DAYS_PRESETS = [
+  { id: 1, label: '1D' },
+  { id: 3, label: '3D' },
+  { id: 7, label: '1W' },
+  { id: 14, label: '2W' },
+  { id: 28, label: '4W' },
+  { id: 90, label: '3M' },
+];
+
 const baseChartOptions = {
   layout: { background: { color: '#111117' }, textColor: '#555568', fontFamily: "'Geist Mono',monospace", fontSize: 10 },
   grid: { vertLines: { color: 'rgba(56,56,78,0.2)' }, horzLines: { color: 'rgba(56,56,78,0.2)' } },
@@ -72,6 +81,8 @@ export default function ChartWithIndicators({
   chartType = 'candle',
   onTfChange,
   onChartTypeChange,
+  days = null,
+  onDaysChange,
 }) {
   const [indicators, setIndicators] = useState({
     sma20: false, sma50: false,
@@ -509,6 +520,14 @@ export default function ChartWithIndicators({
           {CHART_TYPES.map(c => (
             <button key={c.id} className={`cwi-tf ${chartType === c.id ? 'a' : ''}`} onClick={() => onChartTypeChange?.(c.id)}>
               {c.label}
+            </button>
+          ))}
+        </div>
+        <span className="cwi-sep">|</span>
+        <div className="cwi-group">
+          {DAYS_PRESETS.map(d => (
+            <button key={String(d.id)} className={`cwi-tf ${days === d.id ? 'a' : ''}`} onClick={() => onDaysChange?.(d.id)}>
+              {d.label}
             </button>
           ))}
         </div>
