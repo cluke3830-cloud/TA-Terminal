@@ -36,7 +36,276 @@ function PortfolioInner() {
 
       <FrontierSection plotlyReady={plotlyReady} />
       <BacktestSection plotlyReady={plotlyReady} />
+      <RiskSection plotlyReady={plotlyReady} />
     </main>
+  );
+}
+
+// ── Section 3: Risk Decomposition ─────────────────────────────────────────
+
+function RiskSection({ plotlyReady }) {
+  const [rows, setRows] = useState([
+    { ticker: 'AAPL', weight: 0.4 },
+    { ticker: 'MSFT', weight: 0.3 },
+    { ticker: 'GLD',  weight: 0.3 },
+  ]);
+  const [benchmark, setBenchmark] = useState('SPY');
+  const [conf, setConf] = useState(0.95);
+  const [startYear, setStartYear] = useState(2020);
+  const [endYear, setEndYear] = useState(new Date().getFullYear());
+  const [rebalance, setRebalance] = useState('monthly');
+  const [costBps, setCostBps] = useState(5);
+  const [t1, setT1] = useState(true);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const histRef = useRef(null);
+  const ddRef = useRef(null);
+  const decompRef = useRef(null);
+
+  const setRow = (i, key, val) => {
+    setRows((prev) => prev.map((r, k) => k === i ? { ...r, [key]: key === 'weight' ? parseFloat(val) || 0 : val.toUpperCase() } : r));
+  };
+  const addRow = () => setRows((p) => [...p, { ticker: '', weight: 0 }]);
+  const delRow = (i) => setRows((p) => p.filter((_, k) => k !== i));
+  const totalWeight = rows.reduce((s, r) => s + (r.weight || 0), 0);
+
+  const run = async () => {
+    setLoading(true); setErr(null); setResult(null);
+    try {
+      const tickers = rows.map((r) => r.ticker).filter(Boolean);
+      const weights = {};
+      rows.forEach((r) => { if (r.ticker) weights[r.ticker.toUpperCase()] = r.weight; });
+      const r = await fetch('/data_pages/portfolio/risk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tickers, weights, benchmark: benchmark.toUpperCase(), conf,
+          start: `${startYear}-01-01`, end: `${endYear}-12-31`,
+          rebalance, costBps, t1,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      setResult(d);
+    } catch (e) { setErr(e.message); } finally { setLoading(false); }
+  };
+
+  // Histogram with VaR & CVaR cutoff lines.
+  useEffect(() => {
+    if (!plotlyReady || !result?.histogram || !histRef.current) return;
+    const h = result.histogram;
+    const p = result.portfolio;
+    const histVaR = -p.histVaR;
+    const histCVaR = -p.histCVaR;
+    const paramVaR = -p.paramVaR;
+    window.Plotly.newPlot(histRef.current, [
+      {
+        x: h.map((b) => b.x), y: h.map((b) => b.n),
+        type: 'bar',
+        marker: {
+          color: h.map((b) => b.x < histVaR ? '#ff3355' : (b.x < 0 ? '#ff883344' : '#00f59b44')),
+          line: { width: 0 },
+        },
+        name: 'Daily P&L',
+        hovertemplate: 'Return: %{x:.2%}<br>Days: %{y}<extra></extra>',
+      },
+    ], {
+      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
+      font: { color: '#a0a0b4', family: 'Geist Mono', size: 10 },
+      margin: { l: 50, r: 20, t: 36, b: 44 },
+      title: { text: `Daily Return Distribution · ${result.config.days}d`, font: { size: 12, color: '#a0a0b4' } },
+      xaxis: { title: 'Daily return', tickformat: '.1%', gridcolor: '#282835' },
+      yaxis: { title: 'Days', gridcolor: '#282835' },
+      shapes: [
+        { type: 'line', x0: histVaR, x1: histVaR, y0: 0, y1: 1, yref: 'paper', line: { color: '#ff3355', width: 2 } },
+        { type: 'line', x0: histCVaR, x1: histCVaR, y0: 0, y1: 1, yref: 'paper', line: { color: '#ff3355', width: 1, dash: 'dot' } },
+        { type: 'line', x0: paramVaR, x1: paramVaR, y0: 0, y1: 1, yref: 'paper', line: { color: '#00d4ff', width: 1, dash: 'dash' } },
+      ],
+      annotations: [
+        { x: histVaR, y: 1.06, yref: 'paper', text: `Hist VaR ${(conf * 100).toFixed(0)}%`, showarrow: false, font: { color: '#ff3355', size: 9, family: 'Geist Mono' }, xanchor: 'center' },
+        { x: paramVaR, y: 0.88, yref: 'paper', text: `Param VaR ${(conf * 100).toFixed(0)}%`, showarrow: false, font: { color: '#00d4ff', size: 9, family: 'Geist Mono' }, xanchor: 'center' },
+      ],
+      showlegend: false,
+    }, { responsive: true, displayModeBar: false });
+  }, [result, plotlyReady, conf]);
+
+  // Drawdown curve.
+  useEffect(() => {
+    if (!plotlyReady || !result?.drawdown || !ddRef.current) return;
+    const dd = result.drawdown;
+    const dates = result.dates;
+    window.Plotly.newPlot(ddRef.current, [
+      {
+        x: dd.map((p) => dates[p.i]),
+        y: dd.map((p) => p.dd),
+        type: 'scatter', mode: 'lines',
+        line: { color: '#ff3355', width: 1.5 },
+        fill: 'tozeroy', fillcolor: 'rgba(255,51,85,0.12)',
+        hovertemplate: '%{x}<br>DD: %{y:.1%}<extra></extra>',
+      },
+    ], {
+      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
+      font: { color: '#a0a0b4', family: 'Geist Mono', size: 10 },
+      margin: { l: 50, r: 20, t: 36, b: 44 },
+      title: { text: `Drawdown · max ${(result.portfolio.maxDD * 100).toFixed(1)}%`, font: { size: 12, color: '#a0a0b4' } },
+      xaxis: { gridcolor: '#282835' },
+      yaxis: { tickformat: '.0%', gridcolor: '#282835' },
+      showlegend: false,
+    }, { responsive: true, displayModeBar: false });
+  }, [result, plotlyReady]);
+
+  // Stacked bar: % contribution to VaR per asset.
+  useEffect(() => {
+    if (!plotlyReady || !result?.decomposition || !decompRef.current) return;
+    const d = result.decomposition;
+    window.Plotly.newPlot(decompRef.current, [
+      {
+        x: d.map((a) => a.ticker),
+        y: d.map((a) => a.pctContribution * 100),
+        type: 'bar',
+        marker: { color: d.map((a) => a.pctContribution >= 0 ? '#00d4ff' : '#ff8833') },
+        text: d.map((a) => `${(a.pctContribution * 100).toFixed(1)}%`),
+        textposition: 'outside',
+        textfont: { color: '#cfcfdc', size: 11, family: 'Geist Mono' },
+        hovertemplate: '%{x}<br>VaR contrib: %{y:.2f}%<extra></extra>',
+      },
+    ], {
+      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
+      font: { color: '#a0a0b4', family: 'Geist Mono', size: 10 },
+      margin: { l: 50, r: 20, t: 36, b: 44 },
+      title: { text: 'Risk Contribution by Asset · % of parametric VaR', font: { size: 12, color: '#a0a0b4' } },
+      xaxis: { gridcolor: '#282835' },
+      yaxis: { title: '% contribution', gridcolor: '#282835', range: [0, Math.max(...d.map((a) => a.pctContribution * 100), 0) * 1.25 + 2] },
+      showlegend: false,
+    }, { responsive: true, displayModeBar: false });
+  }, [result, plotlyReady]);
+
+  return (
+    <div className="fi fi3" style={{ padding: '0 18px 24px' }}>
+      <div className="card">
+        <div className="card-h"><span className="card-t">Section 3 · Risk Decomposition</span><span className="badge b-p">VaR · CVaR · MAX DD · BETA · MVaR</span></div>
+        <div className="card-b">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 14 }}>
+            <Field label="Benchmark">
+              <input className="port-in" value={benchmark} onChange={(e) => setBenchmark(e.target.value.toUpperCase())} placeholder="SPY" />
+            </Field>
+            <Field label="Confidence">
+              <select className="port-in" value={conf} onChange={(e) => setConf(parseFloat(e.target.value))}>
+                <option value={0.90}>90%</option>
+                <option value={0.95}>95%</option>
+                <option value={0.99}>99%</option>
+              </select>
+            </Field>
+            <Field label="Start year">
+              <input type="number" className="port-in" value={startYear} onChange={(e) => setStartYear(parseInt(e.target.value, 10))} />
+            </Field>
+            <Field label="End year">
+              <input type="number" className="port-in" value={endYear} onChange={(e) => setEndYear(parseInt(e.target.value, 10))} />
+            </Field>
+            <Field label="Rebalance">
+              <select className="port-in" value={rebalance} onChange={(e) => setRebalance(e.target.value)}>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </Field>
+            <Field label="Cost (bps/trade)">
+              <input type="number" className="port-in" value={costBps} onChange={(e) => setCostBps(parseFloat(e.target.value) || 0)} />
+            </Field>
+            <Field label="Σ weights">
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: Math.abs(totalWeight - 1) > 0.01 ? 'var(--neon-red)' : 'var(--neon-green)' }}>
+                {totalWeight.toFixed(3)} {Math.abs(totalWeight - 1) > 0.01 ? '(must = 1.0)' : '✓'}
+              </span>
+            </Field>
+            <button className="tf a" onClick={run} disabled={loading || rows.length < 1 || Math.abs(totalWeight - 1) > 0.01}>{loading ? 'Computing…' : 'Compute Risk'}</button>
+          </div>
+
+          <table className="dt">
+            <thead><tr><th>Ticker</th><th>Weight</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td><input className="port-in port-in-sm" value={r.ticker} onChange={(e) => setRow(i, 'ticker', e.target.value)} placeholder="AAPL" /></td>
+                  <td><input className="port-in port-in-sm" type="number" step="0.05" value={r.weight} onChange={(e) => setRow(i, 'weight', e.target.value)} /></td>
+                  <td><button className="tf" onClick={() => delRow(i)}>×</button></td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={3}><button className="tf" onClick={addRow}>+ Add ticker</button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          {err && <div style={{ marginTop: 10 }}><Err m={err} /></div>}
+
+          {result?.portfolio && (
+            <>
+              <div className="rg" style={{ marginTop: 14, gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                <div className="rb" title={`Historical VaR ${(conf*100).toFixed(0)}%: on ${(100*(1-conf)).toFixed(0)}% of days, loss exceeds this value. Computed as -quantile(${(100*(1-conf)).toFixed(0)}th percentile) of daily returns.`}><div className="rb-l">Hist VaR {(conf*100).toFixed(0)}%</div><div className="rb-v vr">{fmt2(result.portfolio.histVaR)}</div></div>
+                <div className="rb" title={`Historical CVaR ${(conf*100).toFixed(0)}% (Expected Shortfall): average loss on the worst ${(100*(1-conf)).toFixed(0)}% of days. More tail-sensitive than VaR.`}><div className="rb-l">Hist CVaR {(conf*100).toFixed(0)}%</div><div className="rb-v vr">{fmt2(result.portfolio.histCVaR)}</div></div>
+                <div className="rb" title={`Parametric VaR ${(conf*100).toFixed(0)}%: Gaussian approximation -(μ − z·σ). Faster to compute but assumes normal returns — may understate tail risk.`}><div className="rb-l">Param VaR {(conf*100).toFixed(0)}%</div><div className="rb-v vc">{fmt2(result.portfolio.paramVaR)}</div></div>
+                <div className="rb" title={`Parametric CVaR ${(conf*100).toFixed(0)}%: Gaussian Expected Shortfall = -(μ − σ·φ(z)/(1−conf)). Underestimates tail risk if returns are fat-tailed.`}><div className="rb-l">Param CVaR {(conf*100).toFixed(0)}%</div><div className="rb-v vc">{fmt2(result.portfolio.paramCVaR)}</div></div>
+                <div className="rb" title="Max Drawdown: largest peak-to-trough decline in portfolio NAV over the full period."><div className="rb-l">Max Drawdown</div><div className="rb-v vr">{fmt2(result.portfolio.maxDD)}</div></div>
+                <div className="rb" title={`Portfolio beta vs ${result.config.benchmark}: sensitivity of portfolio returns to benchmark returns. β=1 moves with market; β<1 is defensive; β>1 is aggressive.`}><div className="rb-l">Beta vs {result.config.benchmark}</div><div className="rb-v vp">{fmtNum(result.portfolio.beta)}</div></div>
+                <div className="rb" title="Annualized volatility = daily return std × √252."><div className="rb-l">Annual Vol</div><div className="rb-v vc">{fmt2(result.portfolio.annualVol)}</div></div>
+                <div className="rb" title="Sharpe ratio = mean daily return ÷ daily vol × √252 (rf=0). Same formula as the Backtest section so values line up."><div className="rb-l">Sharpe</div><div className="rb-v vp">{fmtNum(result.portfolio.sharpe)}</div></div>
+              </div>
+
+              <div style={{ fontSize: 10, color: 'var(--ash)', fontFamily: 'var(--mono)', marginTop: 10, lineHeight: 1.7 }}>
+                Period: {result.period?.start} → {result.period?.end} · {result.config.days} trading days · Daily horizon ·{' '}
+                Rebalance: {result.execution?.rebalance} · Cost: {result.execution?.costBps} bps · {result.execution?.t1 ? 'T+1' : 'Same-bar'} execution.
+                <br />
+                Sharpe / Max DD use the same realized NAV series as the Backtest section. VaR/CVaR are 1-day loss magnitudes — multiply by √h to scale to h days.
+              </div>
+
+              <table className="dt" style={{ marginTop: 14 }}>
+                <thead>
+                  <tr>
+                    <th>Asset</th><th>Weight</th>
+                    <th title="Annualized return = daily mean × 252">Ann. Return</th>
+                    <th title="Annualized volatility = daily std × √252">Ann. Vol</th>
+                    <th title="Beta vs benchmark (market sensitivity)">Beta</th>
+                    <th title="Marginal VaR: incremental loss per unit of weight added (parametric)">Marginal VaR</th>
+                    <th title="Component VaR = w × Marginal VaR; all components sum to portfolio parametric VaR">Component VaR</th>
+                    <th title="Component VaR as % of total portfolio parametric VaR">% of VaR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.decomposition.map((a) => (
+                    <tr key={a.ticker}>
+                      <td><b>{a.ticker}</b></td>
+                      <td className="vc">{fmt2(a.weight)}</td>
+                      <td className={a.mu >= 0 ? 'vg' : 'vr'}>{fmt2(a.mu)}</td>
+                      <td className="vc">{fmt2(a.sigma)}</td>
+                      <td className="vp">{a.beta != null ? fmtNum(a.beta) : '—'}</td>
+                      <td className="vr">{fmt2(a.marginalVaR)}</td>
+                      <td className="vr">{fmt2(a.componentVaR)}</td>
+                      <td className="vy">{fmt2(a.pctContribution)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="g2" style={{ marginTop: 14, gap: 14 }}>
+                <div ref={histRef} style={{ height: 320 }} />
+                <div ref={ddRef} style={{ height: 320 }} />
+              </div>
+              <div ref={decompRef} style={{ height: 320, marginTop: 14 }} />
+            </>
+          )}
+        </div>
+      </div>
+
+      <style jsx>{`
+        .port-in {
+          background: #18181f; border: 1px solid #282835; color: #cfcfdc;
+          padding: 6px 10px; font-family: var(--mono); font-size: 11px;
+          border-radius: 6px; width: 100%; min-width: 0;
+        }
+        .port-in:focus { outline: none; border-color: var(--neon-cyan); }
+        .port-in-sm { padding: 4px 6px; width: 100px; }
+      `}</style>
+    </div>
   );
 }
 
