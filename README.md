@@ -1,15 +1,15 @@
 # ⚛ TA Terminal · Quantum Stock + Macro + Options + Portfolio
 
-A four-page financial intelligence platform built for retail traders.
-Equity analytics on `/`, global macro signals on `/macro`, options workbench on `/options`, and portfolio construction on `/portfolio`.
+A four-page financial intelligence platform built for retail traders who want institutional-grade analytics without a Bloomberg terminal.
 
 > Built for the **AMD Hackathon Championship Edition** — three real GPU workloads (Monte Carlo path simulation, FinBERT batched inference, SEC RAG retrieval) running on AMD MI300X.
 
 ## Stack
 - **Frontend:** Next.js 14 + TradingView Lightweight Charts + Plotly.js (CDN)
-- **Equity APIs:** Alpaca (bars + options/IV) · FMP (financials + earnings + forecasts)
+- **Equity / Smart Money APIs:** Alpaca (bars + options/IV) · FMP (financials, earnings, forecasts, insider Form 4, 13F holdings) · yahoo-finance2 (short interest, FINRA biweekly, 90d price)
 - **Macro APIs:** FRED (yields) · FMP (FX/commodities/calendar) · OpenSky (live flights) · World Bank · EIA · IMF COFER
-- **History/VIX:** yahoo-finance2 (multi-year daily closes, VIX/VIX3M/VIX6M)
+- **History / VIX:** yahoo-finance2 (multi-year daily closes, VIX/VIX3M/VIX6M)
+- **SEC fallback:** EDGAR direct (`data.sec.gov/submissions`) for insider Form 4 filings when FMP is unavailable
 - **GPU service:** FastAPI + PyTorch on ROCm — Monte Carlo, FinBERT (`ProsusAI/finbert`), RAG (ChromaDB + bge-small embeddings)
 - **Deploy:** Vercel (free tier, one-click)
 
@@ -42,7 +42,9 @@ git push -u origin main
 | `EIA_API_KEY` | `/macro` | https://www.eia.gov/opendata/register.php |
 | `MC_GPU_URL` | MC pricer · FinBERT sentiment (optional) | URL of your `gpu-service` host (e.g. `http://mi300x.example:8000`) |
 
-OpenSky Network, World Bank, and yahoo-finance2 need no key. The GPU widgets (`MC_GPU_URL`) degrade gracefully — if unset, the MC pricer falls back to browser-CPU and FinBERT widgets show a clear "offline" badge.
+OpenSky Network, World Bank, and yahoo-finance2 need no key. The GPU widgets degrade gracefully — if `MC_GPU_URL` is unset, the MC pricer falls back to browser-CPU and FinBERT widgets show a clear "offline" badge.
+
+The Smart Money cards (Insider, 13F, Short Interest) and Portfolio Risk Decomposition work without a GPU key — they require only `FMP_API_KEY`. Short interest always works via Yahoo Finance with no key.
 
 ---
 
@@ -76,28 +78,62 @@ npm run dev
 ```
 
 Open **http://localhost:3000** — pages:
-- `/` → Equity Terminal (Heikin Ashi, financials, earnings, FinBERT-scored news)
+- `/` → Equity Terminal (price chart, financials, earnings, Smart Money — Insider / 13F / Short Interest)
 - `/macro` → Macro Analysis (yields, FX, commodities, world map, sector sentiment heatmap)
 - `/options` → Options Workbench (IV surface, IV-RV gap, Greeks, vol smile, term structure, VIX, sentiment, Monte Carlo)
-- `/portfolio` → Portfolio Construction (Markowitz Efficient Frontier with CAL + tangency, Walk-Forward Backtest)
+- `/portfolio` → Portfolio Construction (Markowitz Efficient Frontier + Walk-Forward Backtest + Risk Decomposition)
 
-If port 3000 is busy, run on another port:
+If port 3000 is busy:
 ```bash
 npm run dev -- -p 3737
 ```
 
-> **⚠ macOS / zsh tip:** Do NOT copy commands with inline `#` comments — zsh treats `#` as a literal character by default and will fail with `EINVALIDTAGNAME` or `Invalid project directory`. Either copy commands one line at a time, or run `setopt interactivecomments` once in your shell to enable comment parsing.
+> **⚠ macOS / zsh tip:** Do NOT copy commands with inline `#` comments — zsh treats `#` as a literal character by default. Copy one line at a time, or run `setopt interactivecomments` first.
 
 ---
 
 ## 📊 `/` — Equity Terminal
-- ⚡ Heikin Ashi candlestick chart with EMA 8/21/55 + volume
+
+### Price & Chart
+- ⚡ Heikin Ashi candlestick chart with EMA 8/21/55 + volume bars
+- 🔄 Auto-refresh every 60s · Live symbol search
+
+### Fundamentals
 - 📊 Earnings history, next earnings date, quarterly revenue bars
-- 📈 9 financial ratios + Income/Balance/Cash Flow statements
-- 🎯 Analyst price targets, consensus ratings
-- 📰 **News feed with FinBERT sentiment column** — colored badges (positive/neutral/negative) + 7d/30d rolling sentiment readouts
-- 🔍 Live symbol search · 🔄 Auto-refresh every 60s
-- 📈 Quick-link card to the dedicated Options Workbench
+- 📈 9 financial ratios + Income / Balance / Cash Flow statements
+- 🎯 Analyst price targets and consensus ratings
+- 📰 News feed with **FinBERT sentiment** — positive/neutral/negative badges + 7d/30d rolling readouts
+
+### Smart Money Section
+Three institutional-analytics cards rendered below the fundamentals for the active symbol.
+
+#### Insider Form 4 Transactions
+- Real SEC Form 4 filings via FMP `/stable/insider-trading/search` with EDGAR direct fallback
+- Lookback window selector: **30 / 90 / 180 / 365 days**
+- Summary tiles: Net USD, Buy count, Sell count, Unique insiders
+- Buy/Sell pressure bar (proportional green/red)
+- **By Insider** tab — aggregated buys, sells, net shares, net USD per officer (zero-activity rows filtered out)
+- **Transactions** tab — per-trade table with date, insider name, title, type badge (BUY / SELL / OTHER), shares, price, SEC filing link
+
+#### 13F Institutional Flow
+- FMP quarterly aggregate: `stable/institutional-ownership/symbol-positions-summary`
+- Tiles: Institutional Ownership % with period-point delta, Holder count with QoQ delta, Capital Invested, Flow Score
+- **Flow Score** = (adds − cuts) ÷ (adds + cuts) → −100 (all cutting) to +100 (all adding), labeled BULLISH / NEUTRAL / BEARISH
+- Position flow pills: ▲ New · ↑ Added · ↓ Reduced · ▼ Closed + Put/Call Ratio
+- Adds/cuts ratio bar
+- Quarterly history table with holder counts, **Δ Shares %** (pure position-count change — not mark-to-market), capital invested, institutional ownership %
+- Incomplete-quarter detection: partial quarters dropped automatically (filing window = 45 days post-quarter-end)
+
+#### FINRA Short Interest
+- Yahoo Finance snapshot: **% of Float**, **Days to Cover**, Shares Short, Squeeze Score
+- Color-coded severity: cyan (<5% float) → yellow (5–10%) → red (>10%)
+- **STALE badge** (orange) when the FINRA settlement date is more than 14 days old
+- MoM trend strip: share delta vs prior settlement + % change
+- **90-day price overlay** — SVG line chart color-keyed to SI severity level, with min/mid/max price ticks and 4 date markers
+- Biweekly history sparkline + table (when FMP data available)
+- **Squeeze Score (0–100):** heuristic — 40pts %float, 40pts DTC, 20pts MoM trend. Labeled LOW / MODERATE / HIGH / EXTREME. Clearly noted as a heuristic, not a signal
+
+---
 
 ## 🌍 `/macro` — Global Macro Intelligence
 - 🎯 **Fear & Greed Composite Gauge** — 6 weighted signals (yield curve, real rate, DXY momentum, commodity momentum, yield volatility, central bank stance)
@@ -110,6 +146,8 @@ npm run dev -- -p 3737
 - 🌐 **Global Flows / Multipolar Map** — World Bank reserve holdings choropleth + IMF COFER reserve currency composition
 - 🧠 **Sector Sentiment Heatmap (FinBERT)** — 11 GICS sectors color-coded by mean sentiment over recent bellwether headlines
 
+---
+
 ## 📐 `/options` — Options Workbench
 
 Everything options-related in one scrollable page, ticker-driven via `?sym=`:
@@ -121,98 +159,98 @@ Everything options-related in one scrollable page, ticker-driven via `?sym=`:
 - 📈 **ATM IV Term Structure** — IV across maturities with **contango / backwardation** flag
 - 🎢 **VIX Term Structure** — VIX / VIX3M / VIX6M with `VIX/VIX3M` ratio signal + 90-day history overlay
 - 🧠 **News Sentiment (FinBERT)** — daily rolling sentiment chart for the active ticker + scored headline list
-- 🎲 **Monte Carlo Option Pricer (embedded)** — Black-Scholes-Merton path simulation on AMD MI300X, browser-CPU fallback
+- 🎲 **Monte Carlo Option Pricer (embedded)** — BSM path simulation on AMD MI300X, browser-CPU fallback
+
+---
 
 ## 💼 `/portfolio` — Portfolio Construction
 
-Two stacked sections that turn raw historical data into actionable allocations.
+Three stacked sections for full portfolio lifecycle: allocation → execution → risk.
 
 ### Section 1 · Efficient Frontier
 - Inputs: tickers (comma-separated), start/end year, objective (max Sharpe / min vol / target return), per-asset min/max weight bounds
-- Solver: hand-rolled Markowitz QP with projected gradient + simplex projection (no native deps), full parabolic frontier traced by sweeping the Lagrangian dual `q` through both halves
-- Plot matches the textbook reference:
-  - **Efficient Frontier** (full parabola)
-  - **Best possible CAL** (tangent from `(0, r_f)` through tangency portfolio, slope = Sharpe)
-  - **Tangency Portfolio** (red dot)
-  - **risk-free rate** marker on y-axis
-  - **Individual Assets** as orange diamonds with ticker labels
-- Live feasibility readout: `Σ min ≤ 1` and `Σ max ≥ 1` — Solve auto-disables when bounds can't sum to 100%
+- Solver: hand-rolled Markowitz QP (projected gradient + simplex projection), full parabolic frontier traced by sweeping the Lagrangian dual `q`
+- Plot: **Efficient Frontier** parabola · **Best CAL** (tangent from risk-free rate) · **Tangency Portfolio** (red dot) · **Individual Assets** (orange diamonds) · **risk-free rate** marker
+- Live feasibility check: `Σ min ≤ 1` and `Σ max ≥ 1` — Solve auto-disables when bounds are infeasible
 
 ### Section 2 · Walk-Forward Backtest
-- Inputs: tickers + per-ticker weights, start/end year, transaction cost (bps), rebalance cadence (monthly/quarterly/yearly), T+1 execution toggle
-- Daily NAV walk-forward simulation with turnover-weighted cost drag
+- Inputs: tickers + weights, start/end year, transaction cost (bps), rebalance cadence (monthly/quarterly/yearly), T+1 execution toggle
+- Daily NAV simulation with turnover-weighted cost drag
 - Outputs: equity curve + drawdown overlay, Total Return / Max DD / Sharpe / Annual Vol / Final NAV / # rebalances
+
+### Section 3 · Risk Decomposition
+Full portfolio risk report with VaR decomposition.
+
+**Inputs:** same tickers/weights as Backtest, plus benchmark ticker, confidence level (90/95/99%), date range, rebalance cadence, and cost bps.
+
+**Headline metrics — 8 tiles with hover tooltips explaining each formula:**
+
+| Metric | Formula |
+|--------|---------|
+| Hist VaR | −quantile(1−conf) of realized daily returns |
+| Hist CVaR (ES) | Mean of the worst (1−conf)% tail days |
+| Param VaR | Gaussian: −(μ − z·σ) |
+| Param CVaR | Gaussian ES: −(μ − σ·φ(z)/(1−conf)) |
+| Max Drawdown | Largest peak-to-trough NAV decline |
+| Beta | Cov(portfolio, benchmark) / Var(benchmark) |
+| Annual Vol | Daily std × √252 |
+| Sharpe | Mean daily return / daily std × √252 (rf = 0) |
+
+> **Sharpe and Max DD match the Backtest section exactly.** Both sections derive from the same realized NAV series (same rebalance schedule + cost drag). VaR/CVaR decomposition uses the theoretical constant-weight covariance matrix.
+
+**Per-asset decomposition table:**
+
+| Column | Explanation |
+|--------|-------------|
+| Ann. Return | Mean daily return × 252 |
+| Ann. Vol | Daily std × √252 |
+| Beta | Asset beta vs selected benchmark |
+| Marginal VaR | Incremental VaR per unit of weight: `z·(Σw)ᵢ/σₚ − μᵢ` |
+| Component VaR | `wᵢ × Marginal VaR` — all components sum exactly to Param VaR |
+| % of VaR | Asset's fractional contribution to total portfolio risk |
+
+**Three Plotly charts:**
+1. **Return Distribution** — histogram colored by loss region, Hist VaR and Param VaR cutoff lines at separate vertical positions
+2. **Drawdown Curve** — full-resolution daily series (no stride sampling), red fill under zero
+3. **Risk Contribution Bar** — % of parametric VaR per asset, y-axis auto-padded so outside labels never clip
+
+---
 
 ## 🎲 `/mc` — Monte Carlo Option Pricer
 
-A retail-friendly Monte Carlo simulator that estimates a fair option price by simulating thousands of price paths. Run the same job in your browser (CPU) or on an AMD MI300X GPU and watch the speedup banner light up. Also embedded inside the `/options` page so you don't have to leave the workbench.
+Simulate thousands of price paths to estimate a fair option price. Run in-browser (CPU) or on AMD MI300X GPU.
 
-### How to use it
+**Option types:** European · American · Asian (average price) · Barrier (knock-out) · Lookback
 
-**1. Pick a ticker.** Type a symbol into the search bar (e.g. `NVDA`). Spot price auto-fills from live market data, and the strike snaps to ATM.
+**How to use:**
+1. Type a ticker — spot auto-fills, strike snaps to ATM
+2. Choose option type, DTE, vol, risk-free rate, optional barrier, path count (1K → 10M)
+3. Click **Run** on CPU or GPU
+4. Compare engines — a `⚡ MI300X is N× faster` banner appears
 
-**2. Choose an option type:**
-- **European** — pays at expiry only
-- **American** — can be exercised any day before expiry
-- **Asian** — pays on the *average* price over the period
-- **Barrier** — knocks out (worth $0) if the price crosses your barrier
-- **Lookback** — pays based on the best (call) or worst (put) price seen
-
-**3. Set parameters:** spot, strike, days-to-expiry, volatility, risk-free rate, optional barrier, time steps, simulation count (1K → 10M).
-
-**4. Pick where to run:**
-- **Quick · in your browser** — pure JS, works on any laptop
-- **Fast · AMD MI300X GPU** — PyTorch on ROCm, 192 GB HBM3, ~70× faster than CPU. If the badge shows `offline`, set `MC_GPU_URL`.
-
-**5. Hit ▶ Run.** Get the fair price ± 95% CI, runtime + paths/sec, engine badge, and a 100-path fan chart with 5/50/95 percentile bands.
-
-**6. Compare engines.** Run on CPU then GPU with identical params — a `⚡ MI300X is N× faster` banner lights up.
-
-### Deep-link via URL
-
-```
-/mc?sym=AAPL&type=asian&K=180&T=30D&paths=1000000
-```
-
-Supported params: `sym`, `type` (asian/barrier/lookback/american/european), `K`, `T` (e.g. `30D`), `paths`.
-
-### Embed mode
-
-`/mc?embed=1` strips the page chrome — used by the Options Workbench iframe.
+Deep-link: `/mc?sym=AAPL&type=asian&K=180&T=30D&paths=1000000`  
+Embed mode: `/mc?embed=1` (used by the Options Workbench)
 
 ---
 
 ## 🤖 AMD MI300X Integration · `gpu-service/`
 
-Three real GPU workloads run on the same FastAPI service ([gpu-service/main.py](gpu-service/main.py)):
-
 | Endpoint | Workload | Library |
 |----------|----------|---------|
-| `POST /mc/run` | Monte Carlo option pricing (Asian/Barrier/Lookback/American/European) | PyTorch on ROCm |
+| `POST /mc/run` | Monte Carlo option pricing | PyTorch on ROCm |
 | `POST /finbert/score` | FinBERT batched headline sentiment | `ProsusAI/finbert` via `transformers` |
 | `POST /rag/search` | Top-k cosine search over SEC EDGAR filings | ChromaDB + `bge-small-en-v1.5` |
 | `GET /health` | Device + model + chunk-count snapshot | — |
 
-### Run the gpu-service
-
-On the MI300X box (or any GPU box; falls back to CPU if no CUDA):
-
 ```bash
 cd gpu-service
-# Install PyTorch separately for ROCm (substitute the right rocm version):
 pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
 pip install -r requirements.txt
-# (Optional) Ingest SEC filings into ChromaDB before first RAG query:
-python ingest_edgar.py
+python ingest_edgar.py   # optional: pre-load SEC filings into ChromaDB
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Then point Next.js at it:
-```
-MC_GPU_URL=http://<mi300x-host>:8000
-```
-
-FinBERT lazy-loads on first request and warms in a background thread on startup, so the first user request doesn't pay the ~30s HuggingFace download cost.
+Then set `MC_GPU_URL=http://<mi300x-host>:8000` in your environment.
 
 ---
 
@@ -220,76 +258,69 @@ FinBERT lazy-loads on first request and warms in a background thread on startup,
 
 ```
 app/
-├── page.js                       # Equity terminal (single-page dashboard)
-├── macro/
-│   ├── page.js                   # Macro analysis (8 sections)
-│   └── components/
-│       └── SentimentHeatmap.js   # Section 08 — FinBERT sector grid
-├── options/
-│   ├── page.js                   # Options workbench
-│   └── components/
-│       ├── IVSurface.js          # 3D IV surface (Plotly)
-│       ├── IVRVGap.js            # 3D IV-RV gap heatmap
-│       ├── Greeks.js             # Δ Γ ν Θ ρ table
-│       ├── VolSmile.js           # 2D smile + RR/BF readouts
-│       ├── TermStructure.js     # ATM IV term structure
-│       ├── VixTerm.js            # VIX/VIX3M/VIX6M
-│       ├── SentimentRolling.js   # FinBERT rolling chart
-│       └── McEmbed.js            # /mc?embed=1 iframe
-├── portfolio/
-│   ├── page.js                   # Frontier + Backtest sections
-│   └── lib/
-│       ├── markowitz.js          # QP solver (projected gradient + simplex)
-│       └── backtest.js           # Walk-forward NAV simulator
-├── mc/
-│   ├── page.js                   # Standalone Monte Carlo pricer
-│   └── lib/cpu.js                # JS reference engine
+├── page.js                         # Equity terminal — chart, fundamentals, Smart Money
 ├── components/
-│   ├── Nav.js                    # Top-bar links
-│   └── ui.js                     # Shared Load/Err/fmt utilities
-├── lib/
-│   └── sectors.js                # GICS bellwether map for sentiment heatmap
-└── data_pages/                   # Server-side route handlers
-    ├── stock/                    # Alpaca bars
-    ├── options/
-    │   ├── route.js              # IV surface + smoothing
-    │   └── greeks/route.js       # Black-Scholes Greeks
+│   ├── ChartWithIndicators.js      # TradingView-style candlestick + indicator system
+│   ├── InsiderCard.js              # SEC Form 4 insider transactions
+│   ├── HoldingsCard.js             # 13F institutional flow
+│   └── ShortInterestCard.js        # FINRA short interest + 90d price overlay
+├── macro/
+│   ├── page.js                     # Macro analysis (8 sections)
+│   └── components/
+│       └── SentimentHeatmap.js     # FinBERT sector grid
+├── options/
+│   ├── page.js
+│   └── components/
+│       ├── IVSurface.js · IVRVGap.js · Greeks.js
+│       ├── VolSmile.js · TermStructure.js · VixTerm.js
+│       ├── SentimentRolling.js · McEmbed.js
+├── portfolio/
+│   ├── page.js                     # Frontier + Backtest + Risk Decomposition
+│   └── lib/
+│       ├── markowitz.js            # Markowitz QP solver (no native deps)
+│       ├── backtest.js             # Walk-forward NAV simulator
+│       └── risk.js                 # VaR/CVaR/MaxDD/Beta/Marginal+Component VaR
+├── mc/
+│   ├── page.js                     # Standalone MC pricer
+│   └── lib/cpu.js                  # JS reference engine
+└── data_pages/                     # Next.js server-side route handlers
+    ├── stock/                      # Alpaca bars
+    ├── options/ · greeks/          # IV surface, Black-Scholes Greeks
     ├── earnings/ · financials/ · forecast/ · search/
-    ├── history/                  # yahoo-finance2 daily closes (multi-year)
-    ├── news/                     # Yahoo + FMP merged + FinBERT-scored
-    ├── sentiment/
-    │   ├── gpu/route.js          # Next.js → MI300X /finbert/score proxy
-    │   └── sectors/route.js      # Per-sector FinBERT aggregation
-    ├── mc/gpu/route.js           # Next.js → MI300X /mc/run proxy
+    ├── history/                    # yahoo-finance2 aligned daily closes
+    ├── news/                       # Yahoo + FMP merged + FinBERT-scored
+    ├── insider/route.js            # Form 4 via FMP stable + EDGAR fallback
+    ├── holdings/route.js           # 13F quarterly aggregate via FMP stable
+    ├── short-interest/route.js     # FINRA SI via Yahoo + FMP biweekly + 90d price
+    ├── sentiment/ · mc/gpu/        # MI300X proxies
     ├── portfolio/
-    │   ├── frontier/route.js     # Markowitz solve
-    │   └── backtest/route.js     # Walk-forward simulation
+    │   ├── frontier/route.js       # Markowitz solve
+    │   ├── backtest/route.js       # Walk-forward simulation
+    │   └── risk/route.js           # VaR decomp (reuses backtest NAV for headline stats)
     └── macro/
         ├── yields/ · centralbanks/ · calendar/
-        ├── commodities/ · commodity-history/ · fx/
-        ├── flows/ · flights/ · geopolitical/ · feargreed/
-        └── vix/route.js          # VIX term structure (yahoo-finance2)
+        ├── commodities/ · fx/ · flows/ · flights/
+        ├── geopolitical/ · feargreed/
+        └── vix/route.js
 
 gpu-service/
-├── main.py                       # FastAPI app
-├── mc.py                         # PyTorch MC engine
-├── finbert.py                    # ProsusAI/finbert lazy loader
-├── rag.py                        # ChromaDB top-k search
-├── ingest_edgar.py               # SEC EDGAR → ChromaDB
+├── main.py · mc.py · finbert.py · rag.py
+├── ingest_edgar.py
 └── requirements.txt
 ```
 
-Plotly.js (loaded once via CDN) handles every chart — 3D surfaces, choropleth, scattergeo, smile, term structure, frontier, equity curve, sentiment heatmap.
-
 ---
 
-## ⚠️ Important
-- **Rotate API keys** if you ever shared them publicly (especially before pushing this repo)
-- Alpaca free-tier data is delayed ~15 min (IEX feed)
-- FMP free tier = 250 calls/day · cache TTL 5–60 min reduces calls
-- FRED API limit: 120 req/min (cold yield fetch makes ~44 calls)
-- OpenSky free tier: ~10 req/min unauthenticated (cache TTL 60s)
-- Yahoo Finance free tier: ~5 req/sec — multi-ticker history requests are chunked
-- FinBERT first-call cold start: ~30s (HuggingFace download). Subsequent calls are batched on GPU
-- Backtest assumes T+1 close fills + turnover-weighted cost drag; survivorship bias is unhandled (delisted tickers will error)
-- This is a research tool — **not** investment advice
+## ⚠️ Important Notes
+
+- **Rotate API keys** if you ever pushed them publicly
+- Alpaca free tier: ~15 min delayed data (IEX feed)
+- FMP free tier: 250 calls/day · server-side cache (5–60 min TTL) reduces daily usage significantly
+- FRED: 120 req/min · cold yield fetch makes ~44 calls
+- OpenSky: ~10 req/min unauthenticated (cache TTL 60s)
+- FINRA short interest: biweekly settlements — data can lag up to 30 days; STALE badge appears after 14 days
+- 13F filings: 45-day filing window post-quarter-end — most recent quarter may be under-reported and is auto-dropped if holder count < 60% of prior quarter
+- FinBERT first-call cold start: ~30s (HuggingFace download); subsequent calls batch on GPU
+- Backtest: T+1 close fills + turnover-weighted cost drag; survivorship bias unhandled (delisted tickers error)
+- Risk Decomposition: constant-weight covariance for marginal/component VaR; Sharpe + Max DD derive from the same realistic NAV series as the Backtest section
+- **Research tool — not investment advice**
