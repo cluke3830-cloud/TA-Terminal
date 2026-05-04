@@ -107,6 +107,12 @@ MOM_WINDOW       = 42          # rolling cumulative return (captures slow grinds
 NORM_WINDOW      = 252
 ANNUALIZE        = 252
 
+# v11: pinned random seeds.  Two reruns of the same data must produce
+# bit-identical output.  Used by HMM (random_state), numpy ops (e.g.
+# bootstrap CI, placebo shuffles), and torch (LSTM init + DataLoader
+# shuffle).  Set RANDOM_SEED=None to opt out (debugging only).
+RANDOM_SEED = 42
+
 # v6: multi-scale feature windows
 VOL_WINDOW_SHORT  = 5           # ultra-short volatility
 VOL_WINDOW_YEARLY = 252         # yearly volatility
@@ -270,13 +276,33 @@ SOFT_ALPHA_HMM   = 0.3            # only used when LSTM_TARGET_MODE == "soft"
 LSTM_FORWARD_WIN = 10             # forward window for regime-label derivation
 
 # Forward-regime thresholds (annualised, absolute units — calibrated for SPY).
-# Tune these for other tickers if their characteristic vol differs.
+# v11: these are now used as FALLBACK ONLY when FWD_AUTO_CALIBRATE is False
+# or when the calibration prefix is too short to fit stable percentiles.
+# When auto-calibration is on, _calibrate_forward_thresholds derives per-ticker
+# values from the realised forward-window distributions of `close[:prefix_n]`.
 FWD_VOL_LOW    = 0.10   # below = low-vol regime candidate
 FWD_VOL_MED    = 0.18   # above = elevated vol
 FWD_VOL_HIGH   = 0.30   # above = crisis-grade vol
 FWD_DD_CORR    = 0.07   # 10-bar drawdown above = correction candidate
 FWD_DD_CRISIS  = 0.15   # 10-bar drawdown above = crisis
 FWD_RET_TREND  = 0.015  # cumulative magnitude above = directional move
+
+# v11: per-ticker forward-threshold auto-calibration.  The LSTM teacher
+# signal previously used the SPY-calibrated constants above for every
+# ticker, producing wildly different label distributions across assets
+# (audit showed up to 99pp drift on extreme-vol profiles).  When enabled,
+# thresholds are derived from percentiles of realised 10-bar forward vol
+# and drawdown over a strict training prefix.  Percentiles were chosen so
+# that on real SPY data the calibrated values approximately reproduce the
+# legacy constants — i.e., SPY's behaviour is preserved while non-SPY
+# tickers get self-consistent labels.
+FWD_AUTO_CALIBRATE  = True
+FWD_VOL_LOW_PCT     = 25    # ~p25 of forward-vol  -> "low vol" boundary
+FWD_VOL_MED_PCT     = 65    # ~p65                  -> "elevated vol" boundary
+FWD_VOL_HIGH_PCT    = 95    # ~p95                  -> "crisis-grade vol"
+FWD_DD_CORR_PCT     = 85    # ~p85 of forward-DD    -> "correction" boundary
+FWD_DD_CRISIS_PCT   = 98    # ~p98                  -> "crisis" boundary
+FWD_CAL_MIN_PREFIX  = 252   # below this many bars, fall back to constants
 
 # v8 : calibration — held-out fraction used to fit the isotonic regressor.
 # v10: CALIB_ENABLED added.  Isotonic was calibrated against NEXT-BAR REGIME
@@ -452,6 +478,20 @@ LSTM_FEAT_COLS = [
     "lstm_vix_log",      # log(vix) / 3  (compressed)
     "lstm_vixterm_c",    # vix_term - 1.0  (centred at neutral)
 ]
+
+# =====================================================================
+# REPRODUCIBILITY — seed all RNGs at module load
+# =====================================================================
+# v11: ensures rerunning the pipeline on identical data produces identical
+# results.  HMM was already seeded (random_state=42 at the call sites);
+# this also covers numpy global RNG (used in bootstrap, placebo, etc.)
+# and torch (LSTM init + DataLoader shuffle).
+if RANDOM_SEED is not None:
+    np.random.seed(RANDOM_SEED)
+    if HAS_LSTM:
+        torch.manual_seed(RANDOM_SEED)
+        torch.use_deterministic_algorithms(False)  # CPU LSTM is already deterministic; flag set for clarity
+
 
 # =====================================================================
 # DIAGNOSTIC LOGGING
@@ -887,9 +927,17 @@ def compute_features(df: pd.DataFrame, cross: dict,
 
 
 def normalize_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Rolling min-max normalisation to [0, 1]."""
+    """Rolling min-max normalisation to [0, 1].
+
+    v11: window is now a fixed constant.  The previous formula
+    `min(NORM_WINDOW, max(63, len(df) // 3))` made the WIDTH depend on
+    full-df length, which caused the same historical bar to be
+    re-normalised when more data was appended (worst-case 0.36 absolute
+    drift on autocorr_n in the audit).  Pandas rolling itself is causal,
+    so a fixed window is fully prefix-stable.
+    """
     df = df.copy()
-    n_win = min(NORM_WINDOW, max(63, len(df) // 3))
+    n_win = NORM_WINDOW
     pairs = [
         ("realized_vol",    "vol_n"),
         ("adx",             "trend_n"),
@@ -1370,8 +1418,89 @@ def _build_sequences(features: np.ndarray, soft_labels: np.ndarray,
     return np.array(X_list), np.array(Y_list)
 
 
+def _forward_vol_dd(close: np.ndarray, lookahead: int
+                    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute the realised forward-window vol, drawdown, and total return
+    that _compute_forward_regime uses for label assignment.  Returned arrays
+    have NaN where the forward window is unavailable.
+
+    Factored out so calibration and label assignment use IDENTICAL math.
+    """
+    n = len(close)
+    close = np.asarray(close, dtype=float)
+    log_close = np.log(np.where(close > 0, close, np.nan))
+    log_ret = np.diff(log_close, prepend=np.nan)
+
+    vol_arr = np.full(n, np.nan)
+    dd_arr  = np.full(n, np.nan)
+    ret_arr = np.full(n, np.nan)
+    for t in range(n - lookahead):
+        win_close = close[t: t + lookahead + 1]
+        if np.isnan(win_close).any() or win_close[0] <= 0:
+            continue
+        win_lr = log_ret[t + 1: t + 1 + lookahead]
+        if np.all(np.isnan(win_lr)):
+            continue
+        vol_arr[t] = np.nanstd(win_lr) * np.sqrt(252)
+        rmax = np.maximum.accumulate(win_close).max()
+        dd_arr[t]  = (rmax - win_close.min()) / max(rmax, 1e-9)
+        ret_arr[t] = win_close[-1] / win_close[0] - 1.0
+    return vol_arr, dd_arr, ret_arr
+
+
+def _calibrate_forward_thresholds(close: np.ndarray,
+                                  prefix_n: int,
+                                  lookahead: int = LSTM_FORWARD_WIN
+                                  ) -> dict:
+    """Derive per-ticker forward-regime thresholds from a strict prefix.
+
+    Computes realised forward-window vol and drawdown distributions on
+    `close[:prefix_n]` and reads off configured percentiles.  The result is
+    self-consistent for the ticker — TLT's "elevated vol" reflects TLT's
+    own vol distribution, not SPY's.
+
+    Falls back to module-level constants if the prefix has fewer than
+    FWD_CAL_MIN_PREFIX usable bars (avoids unstable percentiles on short
+    histories).
+
+    Look-ahead safety: only `close[:prefix_n]` is consumed.  prefix_n is
+    chosen by the caller (typically WF_MIN_TRAIN), and labels for bars
+    >= prefix_n - lookahead are subsequently excluded from LSTM training
+    by the existing train_cutoff at run_backtest's LSTM phase.
+    """
+    fallback = {
+        "FWD_VOL_LOW":   FWD_VOL_LOW,
+        "FWD_VOL_MED":   FWD_VOL_MED,
+        "FWD_VOL_HIGH":  FWD_VOL_HIGH,
+        "FWD_DD_CORR":   FWD_DD_CORR,
+        "FWD_DD_CRISIS": FWD_DD_CRISIS,
+        "FWD_RET_TREND": FWD_RET_TREND,
+        "_source": "fallback-defaults",
+    }
+    prefix_n = int(min(prefix_n, len(close)))
+    if prefix_n < FWD_CAL_MIN_PREFIX:
+        return fallback
+
+    vol_arr, dd_arr, _ = _forward_vol_dd(close[:prefix_n], lookahead)
+    vol_finite = vol_arr[~np.isnan(vol_arr)]
+    dd_finite  = dd_arr[~np.isnan(dd_arr)]
+    if len(vol_finite) < FWD_CAL_MIN_PREFIX // 2:
+        return fallback
+
+    return {
+        "FWD_VOL_LOW":   float(np.percentile(vol_finite, FWD_VOL_LOW_PCT)),
+        "FWD_VOL_MED":   float(np.percentile(vol_finite, FWD_VOL_MED_PCT)),
+        "FWD_VOL_HIGH":  float(np.percentile(vol_finite, FWD_VOL_HIGH_PCT)),
+        "FWD_DD_CORR":   float(np.percentile(dd_finite,  FWD_DD_CORR_PCT)),
+        "FWD_DD_CRISIS": float(np.percentile(dd_finite,  FWD_DD_CRISIS_PCT)),
+        "FWD_RET_TREND": FWD_RET_TREND,   # not vol-scaled; left as constant
+        "_source": f"prefix[:{prefix_n}]",
+    }
+
+
 def _compute_forward_regime(close: np.ndarray,
-                            lookahead: int = LSTM_FORWARD_WIN) -> np.ndarray:
+                            lookahead: int = LSTM_FORWARD_WIN,
+                            thresholds: dict | None = None) -> np.ndarray:
     """Derive a forward-window regime label from realised future returns,
     volatility, and drawdown.  Returns NaN for the last `lookahead` bars
     (no forward window available) and for any bar with NaN closes ahead.
@@ -1380,38 +1509,45 @@ def _compute_forward_regime(close: np.ndarray,
     quantity.  At inference the LSTM consumes only past features and emits
     a forecast; the label is never re-derived live.
 
-    Why thresholds and not rolling percentiles: rolling percentiles drift
-    with the regime ("18% vol = high in 2017, low in 2022"), which is
-    exactly the bias that broke the rule-based scoring.  Absolute thresholds
-    keep label semantics constant across history.
+    Thresholds: if `thresholds` is None, falls back to module-level SPY
+    constants (legacy behaviour).  In production run_backtest passes
+    per-ticker auto-calibrated values from _calibrate_forward_thresholds.
     """
+    th = thresholds if thresholds is not None else {
+        "FWD_VOL_LOW":   FWD_VOL_LOW,
+        "FWD_VOL_MED":   FWD_VOL_MED,
+        "FWD_VOL_HIGH":  FWD_VOL_HIGH,
+        "FWD_DD_CORR":   FWD_DD_CORR,
+        "FWD_DD_CRISIS": FWD_DD_CRISIS,
+        "FWD_RET_TREND": FWD_RET_TREND,
+    }
+    vol_low    = th["FWD_VOL_LOW"]
+    vol_med    = th["FWD_VOL_MED"]
+    vol_high   = th["FWD_VOL_HIGH"]
+    dd_corr    = th["FWD_DD_CORR"]
+    dd_crisis  = th["FWD_DD_CRISIS"]
+    ret_trend  = th["FWD_RET_TREND"]
+
     n = len(close)
     fwd = np.full(n, np.nan)
-    close = np.asarray(close, dtype=float)
-    log_close = np.log(np.where(close > 0, close, np.nan))
-    log_ret = np.diff(log_close, prepend=np.nan)
+    vol_arr, dd_arr, ret_arr = _forward_vol_dd(close, lookahead)
 
     for t in range(n - lookahead):
-        win_close = close[t: t + lookahead + 1]
-        if np.isnan(win_close).any() or win_close[0] <= 0:
+        vol = vol_arr[t]
+        if np.isnan(vol):
             continue
-        ret = win_close[-1] / win_close[0] - 1.0
-        win_lr = log_ret[t + 1: t + 1 + lookahead]
-        if np.all(np.isnan(win_lr)):
-            continue
-        vol = np.nanstd(win_lr) * np.sqrt(252)
-        rmax = np.maximum.accumulate(win_close).max()
-        dd = (rmax - win_close.min()) / max(rmax, 1e-9)
+        dd  = dd_arr[t]
+        ret = ret_arr[t]
 
-        if dd > FWD_DD_CRISIS or vol > FWD_VOL_HIGH:
+        if dd > dd_crisis or vol > vol_high:
             fwd[t] = 5      # Crisis
-        elif dd > FWD_DD_CORR and ret < -0.02:
+        elif dd > dd_corr and ret < -0.02:
             fwd[t] = 4      # Correction
-        elif vol > FWD_VOL_MED and abs(ret) > FWD_RET_TREND:
+        elif vol > vol_med and abs(ret) > ret_trend:
             fwd[t] = 1      # Volatile Trend
-        elif vol > FWD_VOL_MED:
+        elif vol > vol_med:
             fwd[t] = 3      # High-Vol Churn
-        elif vol < FWD_VOL_LOW and abs(ret) < 0.005:
+        elif vol < vol_low and abs(ret) < 0.005:
             fwd[t] = 2      # Low-Vol Range
         else:
             fwd[t] = 0      # Calm Trend
@@ -1477,6 +1613,12 @@ def _train_lstm(X: np.ndarray, Y_soft: np.ndarray,
     if not HAS_LSTM or len(X) < LSTM_BATCH * 2:
         return None
 
+    # v11: re-seed at the start of every refit so each segment is
+    # independently reproducible.  Without this the global seed only
+    # determines the FIRST refit; later refits inherit consumed RNG state.
+    if RANDOM_SEED is not None:
+        torch.manual_seed(RANDOM_SEED)
+
     device = torch.device("cpu")
     model = RegimeLSTM(input_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LSTM_LR)
@@ -1491,8 +1633,13 @@ def _train_lstm(X: np.ndarray, Y_soft: np.ndarray,
     X_v = torch.FloatTensor(X[n_train:]).to(device)
     Y_v = torch.FloatTensor(Y_soft[n_train:]).to(device)
 
+    # v11: seeded DataLoader generator -> deterministic shuffle order
+    gen = torch.Generator()
+    if RANDOM_SEED is not None:
+        gen.manual_seed(RANDOM_SEED)
     train_ds = TensorDataset(X_t, Y_t)
-    train_dl = DataLoader(train_ds, batch_size=LSTM_BATCH, shuffle=True)
+    train_dl = DataLoader(train_ds, batch_size=LSTM_BATCH, shuffle=True,
+                          generator=gen)
 
     best_val_loss = float("inf")
     patience_counter = 0
@@ -2093,10 +2240,25 @@ def run_backtest(df: pd.DataFrame) -> pd.DataFrame:
 
     # v10: forward-regime teacher signal for the LSTM (Phase 2 decoupling).
     # Computed once over the full close series; sliced per training segment.
-    # Uses absolute thresholds so labels are stable across regimes.
+    # v11: thresholds are now auto-calibrated per-ticker from a strict prefix
+    # (default WF_MIN_TRAIN bars).  See _calibrate_forward_thresholds.
     if LSTM_TARGET_MODE == "forward":
+        if FWD_AUTO_CALIBRATE:
+            fwd_thresholds = _calibrate_forward_thresholds(
+                df["close"].values, prefix_n=WF_MIN_TRAIN,
+                lookahead=LSTM_FORWARD_WIN)
+        else:
+            fwd_thresholds = None
+        _diag_log(
+            f"[lstm-tgt] Forward thresholds (source={fwd_thresholds.get('_source') if fwd_thresholds else 'legacy-constants'}): "
+            f"vol_low={fwd_thresholds['FWD_VOL_LOW'] if fwd_thresholds else FWD_VOL_LOW:.3f} "
+            f"vol_med={fwd_thresholds['FWD_VOL_MED'] if fwd_thresholds else FWD_VOL_MED:.3f} "
+            f"vol_high={fwd_thresholds['FWD_VOL_HIGH'] if fwd_thresholds else FWD_VOL_HIGH:.3f} "
+            f"dd_corr={fwd_thresholds['FWD_DD_CORR'] if fwd_thresholds else FWD_DD_CORR:.3f} "
+            f"dd_crisis={fwd_thresholds['FWD_DD_CRISIS'] if fwd_thresholds else FWD_DD_CRISIS:.3f}")
         df["fwd_regime"] = _compute_forward_regime(
-            df["close"].values, LSTM_FORWARD_WIN)
+            df["close"].values, LSTM_FORWARD_WIN,
+            thresholds=fwd_thresholds)
         fwd_counts = (df["fwd_regime"]
                       .dropna()
                       .astype(int)
@@ -2798,17 +2960,88 @@ def validate_model(df: pd.DataFrame, ticker: str, *,
         print(f"    {sd:>8.2f}  {_sharpe_ann(r):>+8.2f}  {_mdd(r):>+8.2%}")
 
     # [9] look-ahead bias audit -------------------------------------
-    print(f"\n[9] Look-ahead bias audit (structural):")
-    print(f"    EWMA features            : past-only by construction  [OK]")
-    print(f"    Rolling(min_periods<=win): past-only when computed    [OK]")
-    print(f"    FRED/VIX ffill           : past-only, no .bfill used  [OK]")
-    print(f"    HMM walk-forward fit     : X_train=[:seg_start]       [OK]")
-    print(f"    LSTM walk-forward fit    : train_feats=[:seg_start]   [OK]")
-    print(f"    Calibration chrono split : fit 0-60%, test 60-100%    [OK]")
-    print(f"    Signal shifted by 1 bar  : sig.shift(1) before ret    [OK]")
-    print(f"    Optimise weights (once)  : uses full data -- mild IS  [FLAG]")
-    print(f"      -> mitigate by disabling optimize_scoring_weights or")
-    print(f"         running it only on first 60% of history")
+    # v11: replaced static "[OK]" checklist with real numerical checks.
+    # Each line either PASSES with a measured residual or FAILS loudly.
+    print(f"\n[9] Look-ahead bias audit (numerical):")
+
+    def _fmt(name: str, ok: bool, detail: str) -> str:
+        tag = "[PASS]" if ok else "[FAIL]"
+        return f"    {name:<40}{detail:<22}{tag}"
+
+    # (a) Rolling normalisation is prefix-stable.  Pick the longest classified
+    # prefix shorter than full df, recompute, and compare vol_n at boundary.
+    try:
+        k = max(len(v) // 2, NORM_WINDOW + 1)
+        # Need raw feature columns to re-run normalize_features
+        raw_cols_present = all(c in v.columns for c in
+                               ["realized_vol", "adx", "drawdown"])
+        if raw_cols_present and "vol_n" in v.columns:
+            recomputed = normalize_features(v.iloc[:k].copy())
+            diff = float(np.nanmax(np.abs(
+                recomputed["vol_n"].values - v["vol_n"].iloc[:k].values)))
+            print(_fmt("Rolling normalisation prefix-stable",
+                       diff < 1e-9, f"max diff={diff:.2e}"))
+        else:
+            print("    Rolling normalisation prefix-stable    "
+                  "(skipped — raw cols absent)")
+    except Exception as e:
+        print(f"    Rolling normalisation prefix-stable    ERROR: {e}")
+
+    # (b) Forward-regime teacher signal: per-segment recompute equals global.
+    if "fwd_regime" in v.columns:
+        try:
+            close = v["close"].values
+            prefix_n = min(WF_MIN_TRAIN, len(close) - LSTM_FORWARD_WIN - 1)
+            th = _calibrate_forward_thresholds(close, prefix_n=prefix_n,
+                                               lookahead=LSTM_FORWARD_WIN) \
+                if FWD_AUTO_CALIBRATE else None
+            seg_start = min(prefix_n + 100, len(close) - LSTM_FORWARD_WIN - 1)
+            fwd_local = _compute_forward_regime(
+                close[:seg_start], lookahead=LSTM_FORWARD_WIN, thresholds=th)
+            fwd_global = v["fwd_regime"].values
+            train_cutoff = max(0, seg_start - LSTM_FORWARD_WIN)
+            a = fwd_global[:train_cutoff]
+            b = fwd_local[:train_cutoff]
+            n_diff = int(np.sum(
+                ~((np.isnan(a) & np.isnan(b)) | (a == b))))
+            print(_fmt("LSTM forward-target leak-safe",
+                       n_diff == 0, f"disagreements={n_diff}"))
+        except Exception as e:
+            print(f"    LSTM forward-target leak-safe          ERROR: {e}")
+    else:
+        print("    LSTM forward-target leak-safe          "
+              "(skipped — no fwd_regime)")
+
+    # (c) Strategy signal is shifted by 1 bar (no same-bar execution).
+    # Test: sig at time t must depend on info up to t-1, so shifting an
+    # already-shifted series back by 1 should give a strong correlation
+    # with the *un*shifted raw_ens.  If sig.shift(1) was actually a no-op,
+    # raw_ens and sig would match identically.
+    try:
+        raw_unshift = _compute_raw_signal("prob", v).clip(-1.0, 1.0).values
+        # The implementation does .shift(1).fillna(0).  So sig[t] should
+        # equal an overlay of raw_unshift[t-1].  Quick check: if the
+        # series IS shifted by one, then sig[1:] and raw_unshift[:-1]
+        # should be more correlated than sig[1:] and raw_unshift[1:].
+        c_shifted   = float(np.corrcoef(sig_np[1:], raw_unshift[:-1])[0, 1])
+        c_unshifted = float(np.corrcoef(sig_np[1:], raw_unshift[1:])[0, 1])
+        ok = c_shifted > c_unshifted - 0.02  # equal-or-better
+        print(_fmt("Signal lag-shifted before returns",
+                   ok, f"corr lag1={c_shifted:.3f} vs lag0={c_unshifted:.3f}"))
+    except Exception as e:
+        print(f"    Signal lag-shifted before returns      ERROR: {e}")
+
+    # (d) HMM/LSTM training boundary — confirm walk-forward seg_start
+    # threshold exists.  Static check only; the numerical equivalence is
+    # already covered by the dedicated tests/test_lstm_forward_target_leakage.
+    print(f"    Walk-forward seg_start = {WF_MIN_TRAIN}    [STRUCTURAL]")
+
+    # (e) Optimiser uses full data — keep flag.
+    if OPTIM_ENABLED:
+        print(f"    Optimise weights (once)               IS RISK [FLAG]")
+        print(f"      -> mitigate by running on first 60% of history only")
+    else:
+        print(f"    Optimise weights                      disabled  [OK]")
 
     print("=" * 72 + "\n")
 
