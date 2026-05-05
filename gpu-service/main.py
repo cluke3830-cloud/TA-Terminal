@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 import mc as mc_mod
 import rag as rag_mod
 import finbert as finbert_mod
+import regime as regime_mod
 
 
 app = FastAPI(title="Quantum Terminal · gpu-service")
@@ -64,9 +65,19 @@ class FinBERTRequest(BaseModel):
     texts: List[str] = Field(default_factory=list)
 
 
+class RegimeRequest(BaseModel):
+    ticker: str = "SPY"
+    force: bool = False
+
+
 # Warm FinBERT in the background so the first user call doesn't pay the
 # HuggingFace download cost. Failures are swallowed by finbert.warm().
 threading.Thread(target=finbert_mod.warm, daemon=True).start()
+
+# Pre-compute SPY regime so the first /regime hit returns from cache.
+# The pipeline is 2-3 min cold, so this background warm is the difference
+# between "instant" and "go grab coffee" on the first user click.
+threading.Thread(target=regime_mod.warm, daemon=True).start()
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
@@ -88,6 +99,10 @@ def health():
         info["finbert"] = finbert_mod.health()
     except Exception as e:
         info["finbert_error"] = str(e)
+    try:
+        info["regime"] = regime_mod.health()
+    except Exception as e:
+        info["regime_error"] = str(e)
     return info
 
 
@@ -124,5 +139,18 @@ def finbert_score(req: FinBERTRequest):
         return {"results": []}
     try:
         return {"results": finbert_mod.score(cleaned)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+
+@app.post("/regime/run")
+def regime_run(req: RegimeRequest):
+    ticker = (req.ticker or "SPY").upper().strip()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="ticker is required")
+    try:
+        return regime_mod.compute(ticker, force=req.force)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")

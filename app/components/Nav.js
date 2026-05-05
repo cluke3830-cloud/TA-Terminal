@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-const TAB_ROUTES = ['/', '/macro', '/options', '/portfolio', '/custom'];
+const TAB_ROUTES = ['/', '/macro', '/regime', '/options', '/portfolio', '/custom'];
 
 // Global ticker search. Lives in the top nav so every page (Terminal, Macro,
 // MC Pricer) has it. Selecting a result routes to /?sym=<TICKER>; pressing
@@ -71,6 +71,7 @@ export default function Nav() {
       <span className="app-nav-brand">QUANTUM<span className="brand-dot" /></span>
       <Link href="/" className={isActive('/')}>Terminal</Link>
       <Link href="/macro" className={isActive('/macro')}>Macro</Link>
+      <Link href="/regime" className={isActive('/regime')}>Regime</Link>
       <Link href="/options" className={isActive('/options')}>Options</Link>
       <Link href="/portfolio" className={isActive('/portfolio')}>Portfolio</Link>
       <Link href="/custom" className={isActive('/custom')}>Custom</Link>
