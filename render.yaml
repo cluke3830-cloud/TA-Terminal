@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ta-terminal-regime
+    runtime: python
+    # Build from repo root so regime_dashboard.py is on disk
+    buildCommand: pip install -r regime-service/requirements.txt
+    startCommand: cd regime-service && uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: FRED_API_KEY
+        sync: false   # set manually in Render dashboard
