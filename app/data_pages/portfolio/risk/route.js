@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { computeRisk } from '../../../portfolio/lib/risk';
 import { runBacktest } from '../../../portfolio/lib/backtest';
+import { fetchHistory } from '../../_fetchHistory';
 
 export async function POST(req) {
   let body;
@@ -24,15 +25,9 @@ export async function POST(req) {
   const costBps = body.costBps != null ? +body.costBps : 5;
   const t1 = body.t1 !== false;
 
-  // Reuse the existing history endpoint so we share its caching + alignment.
-  const fetchSyms = Array.from(new Set([...tickers, benchmark])).join(',');
-  const origin = new URL(req.url).origin;
-  const histRes = await fetch(`${origin}/data_pages/history?symbols=${fetchSyms}&start=${start}&end=${end}`);
-  if (!histRes.ok) {
-    const errBody = await histRes.json().catch(() => ({}));
-    return Response.json({ error: `history fetch failed: ${errBody.error || histRes.status}`, missing: errBody.missing }, { status: 502 });
-  }
-  const hist = await histRes.json();
+  const fetchSyms = Array.from(new Set([...tickers, benchmark]));
+  const hist = await fetchHistory(fetchSyms, start, end);
+  if (hist.error) return Response.json({ error: hist.error, missing: hist.missing }, { status: 502 });
   if (hist.missing && hist.missing.length) {
     return Response.json({ error: 'missing data for some tickers', missing: hist.missing }, { status: 400 });
   }

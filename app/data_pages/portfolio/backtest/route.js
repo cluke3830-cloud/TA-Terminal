@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { runBacktest } from '../../../portfolio/lib/backtest';
+import { fetchHistory } from '../../_fetchHistory';
 
 export async function POST(req) {
   let body;
@@ -15,13 +16,8 @@ export async function POST(req) {
   const t1 = body.t1 !== false;
   const rebalance = body.rebalance || 'monthly';
 
-  const origin = new URL(req.url).origin;
-  const histRes = await fetch(`${origin}/data_pages/history?symbols=${tickers.join(',')}&start=${start}&end=${end}`);
-  if (!histRes.ok) {
-    const errBody = await histRes.json().catch(() => ({}));
-    return Response.json({ error: `history fetch failed: ${errBody.error || histRes.status}`, missing: errBody.missing }, { status: 502 });
-  }
-  const hist = await histRes.json();
+  const hist = await fetchHistory(tickers, start, end);
+  if (hist.error) return Response.json({ error: hist.error, missing: hist.missing }, { status: 502 });
   if (hist.missing && hist.missing.length) {
     return Response.json({ error: 'missing data for some tickers', missing: hist.missing }, { status: 400 });
   }
