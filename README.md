@@ -41,6 +41,7 @@ git push -u origin main
 | `FRED_API_KEY` | `/macro` | https://fred.stlouisfed.org/docs/api/api_key.html |
 | `EIA_API_KEY` | `/macro` | https://www.eia.gov/opendata/register.php |
 | `MC_GPU_URL` | MC pricer · FinBERT sentiment (optional) | URL of your `gpu-service` host (e.g. `http://mi300x.example:8000`) |
+| `REGIME_API_URL` | `/regime` page (optional) | URL of your `regime-service` host on Render (e.g. `https://ta-terminal-regime.onrender.com`) |
 
 OpenSky Network, World Bank, and yahoo-finance2 need no key. The GPU widgets degrade gracefully — if `MC_GPU_URL` is unset, the MC pricer falls back to browser-CPU and FinBERT widgets show a clear "offline" badge.
 
@@ -145,6 +146,30 @@ Three institutional-analytics cards rendered below the fundamentals for the acti
 - 🛢️ **Commodity & Energy Pulse** — WTI, Brent, Nat Gas, Copper, Gold, Silver, Uranium proxy, US electricity (with 30-day sparklines)
 - 🌐 **Global Flows / Multipolar Map** — World Bank reserve holdings choropleth + IMF COFER reserve currency composition
 - 🧠 **Sector Sentiment Heatmap (FinBERT)** — 11 GICS sectors color-coded by mean sentiment over recent bellwether headlines
+
+---
+
+## 🧠 `/regime` — Market Regime Classifier
+
+6-regime ensemble classifier (Rules + HMM + LSTM, weights 0.45 / 0.35 / 0.20) built on 21 macro + volatility features. Runs a 2-3 min pipeline on first load; results cached 1 hour. On Render free tier, LSTM is disabled (HMM-only mode) — all 6 regimes still work.
+
+| Regime | Color | What it means | Recommended action |
+|--------|-------|---------------|-------------------|
+| **Calm Trend** | 🟢 green | Steady bull advance. Low vol, intact uptrend. Classic healthy bull market. | Stay long — full equity exposure. |
+| **Volatile Trend** | 🟠 orange | Strong directional move but path is bumpy. Vol elevated, trend has conviction. | Scale with the trend direction — full long (uptrend), reduced (downtrend), never short. |
+| **Low-Vol Range** | 🔵 blue | Quiet range-bound tape. Vol unusually compressed, slow grind, no direction. | Stay long but lighter — patience, not size. |
+| **High-Vol Churn** | ⚪ gray | Elevated vol + price going nowhere. Whipsaws everywhere, signal-to-noise is poor. | De-risk hard. Cut leverage — this regime burns alpha. |
+| **Correction** | 🟡 amber | Moderate drawdown building, momentum negative, vol rising. Pre-crisis. | Light defensive short. Reduce gross exposure, protect capital. |
+| **Crisis** | 🔴 red | Severe drawdown, VIX spike, credit/safe-haven flight (2008, 2020). | Net short / hedged — capital preservation playbook. |
+
+**Hero panel fields:**
+- **Confidence** — ensemble probability of the current regime (capped ~91.7% by entropy mixing, honest about uncertainty)
+- **Next-Bar / 5-Bar Forecast** — short-term regime prediction + probability
+- **Ensemble Sharpe** — rolling Sharpe of the signal-weighted strategy over the lookback window
+- **Calibration (OOS)** — isotonic out-of-sample calibration score (`n/a` in HMM-only mode)
+- **Transition Detector** — detects imminent regime changes via entropy spike (`n/a` in HMM-only mode)
+
+Hosted on Render free tier (`regime-service/`). Set `REGIME_API_URL` in Vercel env vars to your Render service URL. Keep alive with a free [cron-job.org](https://cron-job.org) ping to `/health` every 14 minutes.
 
 ---
 
@@ -304,9 +329,16 @@ app/
         └── vix/route.js
 
 gpu-service/
-├── main.py · mc.py · finbert.py · rag.py
+├── main.py · mc.py · finbert.py · rag.py · regime.py
 ├── ingest_edgar.py
 └── requirements.txt
+
+regime-service/              # CPU-only FastAPI for Render deployment
+├── main.py                  # regime endpoint + health (no GPU deps)
+├── regime.py                # thin JSON wrapper around regime_dashboard.py
+└── requirements.txt
+regime_dashboard.py          # 4000-line HMM+LSTM+Attention ensemble engine (repo root)
+render.yaml                  # Render auto-deploy config for regime-service
 ```
 
 ---
