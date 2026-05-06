@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import ChartWithIndicators from './components/ChartWithIndicators';
 import HoldingsCard from './components/HoldingsCard';
 import ShortInterestCard from './components/ShortInterestCard';
+import AMDTelemetryCard from './components/AMDTelemetryCard';
 
 const FOCUS_TO_ID = {
   overview: 'sec-overview',
@@ -250,6 +251,11 @@ function DashboardInner() {
             <ShortInterestCard symbol={sym} />
             <HoldingsCard symbol={sym} />
           </div>
+        </div>
+
+        {/* AMD MI300X Telemetry */}
+        <div style={{ padding: '0 18px 22px' }}>
+          <AMDTelemetryCard />
         </div>
 
         {/* IV/Greeks/MC moved to dedicated /options page — link out from here. */}
