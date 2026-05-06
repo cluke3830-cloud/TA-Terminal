@@ -282,10 +282,17 @@ export default function ChartWithIndicators({
       stochDRef.current?.setData(s.map((x, i) => x.d != null ? { time: times[i], value: x.d } : null).filter(Boolean));
     }
 
-    // Fit content only on first data load (no visible range yet)
+    // Always snap to the latest bar when data changes (e.g. switching day presets).
+    // scrollToRealtime() keeps zoom level but anchors the right edge to "now",
+    // preventing the chart from staying pinned to an older time window.
     if (mainChartRef.current) {
-      const range = mainChartRef.current.timeScale().getVisibleRange();
-      if (!range) mainChartRef.current.timeScale().fitContent();
+      const ts = mainChartRef.current.timeScale();
+      const range = ts.getVisibleRange();
+      if (!range) {
+        ts.fitContent();
+      } else {
+        ts.scrollToRealtime();
+      }
     }
   }, [bars, tf, tz, chartType, chartReady]);
 
