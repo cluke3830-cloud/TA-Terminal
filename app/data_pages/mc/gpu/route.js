@@ -3,7 +3,7 @@
 // http://localhost:8000). When unset, this route returns 503 + a clear
 // "GPU offline" payload so the frontend can show a badge instead of erroring.
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 55_000;
 
 export async function POST(request) {
   const base = process.env.MC_GPU_URL;
