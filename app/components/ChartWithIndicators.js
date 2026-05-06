@@ -283,15 +283,17 @@ export default function ChartWithIndicators({
     }
 
     // Always snap to the latest bar when data changes (e.g. switching day presets).
-    // scrollToRealtime() keeps zoom level but anchors the right edge to "now",
-    // preventing the chart from staying pinned to an older time window.
     if (mainChartRef.current) {
       const ts = mainChartRef.current.timeScale();
-      const range = ts.getVisibleRange();
-      if (!range) {
-        ts.fitContent();
-      } else {
-        ts.scrollToRealtime();
+      try {
+        const range = ts.getVisibleRange();
+        if (!range) {
+          ts.fitContent();
+        } else {
+          ts.scrollToRealtime();
+        }
+      } catch {
+        try { ts.fitContent(); } catch {}
       }
     }
   }, [bars, tf, tz, chartType, chartReady]);
