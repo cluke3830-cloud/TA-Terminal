@@ -1,7 +1,9 @@
 export const dynamic = 'force-dynamic';
 
+import YahooFinance from 'yahoo-finance2';
 import { getCached, setCache } from '../_cache';
 
+const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 const FMP = 'https://financialmodelingprep.com';
 const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
@@ -55,35 +57,28 @@ function recentQuarters(maxBack = 8) {
   return out;
 }
 
-// Yahoo Finance fallback — always free, no key needed.
+// Yahoo Finance fallback via yahoo-finance2 (handles crumb auth automatically).
 async function fetchYahoo13F(symbol) {
   try {
-    const r = await fetch(
-      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=majorHoldersBreakdown,netSharePurchaseActivity`,
-      { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, cache: 'no-store' }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
-    const res = j?.quoteSummary?.result?.[0];
-    if (!res) return null;
+    const summary = await yahoo.quoteSummary(symbol, {
+      modules: ['majorHoldersBreakdown', 'netSharePurchaseActivity'],
+    });
+    const mhb = summary?.majorHoldersBreakdown || {};
+    const nspa = summary?.netSharePurchaseActivity || {};
 
-    const mhb = res.majorHoldersBreakdown || {};
-    const nspa = res.netSharePurchaseActivity || {};
-
-    const instPct = mhb.institutionsPercentHeld?.raw ?? null;   // 0-1 scale
-    const instCount = mhb.institutionCount?.raw ?? null;
-    const buys = nspa.buyInfoCount?.raw ?? null;
-    const sells = nspa.sellInfoCount?.raw ?? null;
-    const buyShares = nspa.buyInfoShares?.raw ?? null;
-    const sellShares = nspa.sellInfoShares?.raw ?? null;
+    const instPct = mhb.institutionsPercentHeld ?? null;
+    const instCount = mhb.institutionsCount ?? mhb.institutionCount ?? null;
+    const buys = nspa.buyInfoCount ?? null;
+    const sells = nspa.sellInfoCount ?? null;
+    const buyShares = nspa.buyInfoShares ?? null;
+    const sellShares = nspa.sellInfoShares ?? null;
     const period = nspa.period || null;
 
-    if (instPct == null && instCount == null) return null;
+    if (instPct == null && instCount == null && buys == null) return null;
 
     const flowScore = (buys != null && sells != null && (buys + sells) > 0)
       ? (buys - sells) / (buys + sells) : null;
 
-    // Build a single synthetic "current" quarter so the table renders.
     const today = new Date().toISOString().slice(0, 10);
     const syntheticQuarter = {
       date: period || today,
@@ -102,7 +97,7 @@ async function fetchYahoo13F(symbol) {
       putCallRatio: null,
     };
 
-    const summary = {
+    const summaryObj = {
       asOf: period || today,
       ownershipPercent: instPct != null ? instPct * 100 : null,
       ownershipPercentChange: null,
@@ -121,7 +116,7 @@ async function fetchYahoo13F(symbol) {
       flowScore,
     };
 
-    return { summary, history: [syntheticQuarter], source: 'yahoo' };
+    return { summary: summaryObj, history: [syntheticQuarter], source: 'yahoo' };
   } catch { return null; }
 }
 
@@ -136,13 +131,11 @@ export async function GET(req) {
 
   const key = process.env.FMP_API_KEY;
 
-  // Try FMP first if key is available.
   if (key) {
     const slots = recentQuarters(6);
     const fetched = await Promise.all(slots.map((s) => fetchQuarter(symbol, s.year, s.quarter, key)));
     let history = fetched.map(normalizeQuarter).filter(Boolean);
     history.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
     while (history.length >= 2) {
       const last = history[history.length - 1];
       const prior = history[history.length - 2];
@@ -151,7 +144,6 @@ export async function GET(req) {
         history.pop();
       } else break;
     }
-
     if (history.length) {
       const latest = history[history.length - 1];
       const prev = history[history.length - 2] || {};
@@ -160,8 +152,7 @@ export async function GET(req) {
       const adds = (latest.newPositions || 0) + (latest.increasedPositions || 0);
       const cuts = (latest.closedPositions || 0) + (latest.reducedPositions || 0);
       const flowScore = (adds + cuts) > 0 ? (adds - cuts) / (adds + cuts) : null;
-      const activeMoves = adds + cuts;
-      const churnRatio = (latest.investorsHolding || 0) > 0 ? activeMoves / latest.investorsHolding : null;
+      const churnRatio = (latest.investorsHolding || 0) > 0 ? (adds + cuts) / latest.investorsHolding : null;
       const summary = {
         asOf: latest.date, ownershipPercent: latest.ownershipPercent,
         ownershipPercentChange: latest.ownershipPercent != null && latest.lastOwnershipPercent != null
@@ -179,10 +170,9 @@ export async function GET(req) {
     }
   }
 
-  // Fallback: Yahoo Finance institutional ownership data.
-  const yahoo = await fetchYahoo13F(symbol);
-  if (yahoo) {
-    const out = { symbol, ...yahoo, ts: new Date().toISOString() };
+  const yahooData = await fetchYahoo13F(symbol);
+  if (yahooData) {
+    const out = { symbol, ...yahooData, ts: new Date().toISOString() };
     setCache(cacheKey, out, TWELVE_HOURS);
     return Response.json(out);
   }

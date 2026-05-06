@@ -13,7 +13,7 @@ async function fetchHeadlines(symbol) {
   } catch { return []; }
 }
 
-async function score(origin, texts) {
+async function scoreFinBERT(origin, texts) {
   if (!texts.length) return [];
   try {
     const r = await fetch(`${origin}/data_pages/sentiment/gpu`, {
@@ -27,6 +27,40 @@ async function score(origin, texts) {
   } catch { return []; }
 }
 
+// Loughran-McDonald financial lexicon fallback when FinBERT GPU is offline.
+const POS = new Set([
+  'beat','beats','beating','exceed','exceeds','exceeded','surge','surges','surged','rally','rallies','rallied',
+  'soar','soars','soared','jump','jumps','jumped','climb','climbs','climbed','gain','gains','gained',
+  'growth','grow','grew','growing','strong','stronger','strongest','record','high','highs','outperform','outperforms',
+  'upgrade','upgrades','upgraded','positive','profit','profits','profitable','breakthrough','milestone',
+  'partnership','expansion','launches','launch','launched','wins','win','approved','approval','boost','boosts','boosted',
+  'rises','rise','rose','rising','top','tops','topped','accelerate','accelerates','accelerated','optimistic','bullish',
+]);
+const NEG = new Set([
+  'miss','misses','missed','missing','plunge','plunges','plunged','drop','drops','dropped','dropping',
+  'fall','falls','fell','falling','crash','crashes','crashed','tumble','tumbles','tumbled','slide','slides','slid',
+  'loss','losses','losing','lose','lost','weak','weaker','weakest','low','lows','underperform','underperforms',
+  'downgrade','downgrades','downgraded','negative','warning','warns','warned','cut','cuts',
+  'lawsuit','sues','sued','probe','investigation','recall','recalls','recalled','layoff','layoffs','fired',
+  'concerns','concerned','risk','risks','decline','declines','declined','declining','bearish','pessimistic',
+  'fraud','scandal','breach','hack','hacked','outage','disruption','crisis','collapse','bankruptcy',
+]);
+
+function lexiconScore(title) {
+  if (!title) return null;
+  const words = title.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  let pos = 0, neg = 0;
+  for (const w of words) {
+    if (POS.has(w)) pos++;
+    else if (NEG.has(w)) neg++;
+  }
+  const wordCount = Math.max(words.length, 1);
+  const posScore = Math.min(pos / wordCount * 4, 1);
+  const negScore = Math.min(neg / wordCount * 4, 1);
+  const neuScore = Math.max(1 - posScore - negScore, 0);
+  return { positive: +posScore.toFixed(3), negative: +negScore.toFixed(3), neutral: +neuScore.toFixed(3) };
+}
+
 export async function GET(req) {
   const cacheKey = 'sentiment:sectors';
   const cached = getCached(cacheKey);
@@ -35,14 +69,12 @@ export async function GET(req) {
   const origin = new URL(req.url).origin;
   const sectorEntries = Object.entries(SECTOR_BELLWETHERS);
 
-  // Fetch headlines for all bellwethers (chunked to be polite to Yahoo).
   const sectorHeadlines = {};
   for (const [sector, tickers] of sectorEntries) {
     const lists = await Promise.all(tickers.map(fetchHeadlines));
     sectorHeadlines[sector] = lists.flat();
   }
 
-  // Batch all titles into one FinBERT call.
   const flat = [];
   const indexBySector = {};
   for (const [sector, titles] of Object.entries(sectorHeadlines)) {
@@ -52,7 +84,10 @@ export async function GET(req) {
       flat.push(t);
     }
   }
-  const scored = await score(origin, flat);
+
+  const finbertScores = await scoreFinBERT(origin, flat);
+  const usingFinBERT = finbertScores.length > 0;
+  const scored = usingFinBERT ? finbertScores : flat.map(lexiconScore);
 
   const sectors = sectorEntries.map(([sector]) => {
     const idx = indexBySector[sector];
@@ -65,6 +100,7 @@ export async function GET(req) {
   const result = {
     sectors,
     sentimentAvailable: scored.length > 0,
+    sentimentSource: usingFinBERT ? 'finbert' : 'lexicon',
     ts: new Date().toISOString(),
   };
   setCache(cacheKey, result, 30 * 60 * 1000);
