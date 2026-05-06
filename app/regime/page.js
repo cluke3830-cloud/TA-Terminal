@@ -144,6 +144,9 @@ function HeroPanel({ ticker, info, meta }) {
           <div><span className="rg-fog">Days in regime: </span><b>{info.days_in ?? 0}</b></div>
           <div><span className="rg-fog">Expected: </span><b>{durText}</b></div>
           <div><span className="rg-fog">Models: </span><b>{modelTag(info)}</b></div>
+          <div style={{ marginTop: 6 }}>
+            <span style={{ background: 'rgba(237,28,36,0.1)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.25)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.6px', fontFamily: 'var(--mono)' }}>AMD MI300X · ROCm 7.1</span>
+          </div>
         </div>
       </div>
 
@@ -184,6 +187,10 @@ function ProgressNote({ elapsed }) {
         <div style={{ fontSize: 14, color: 'var(--cloud)', fontFamily: 'var(--mono)', letterSpacing: 0.4 }}>{phase}</div>
         <div style={{ fontSize: 11, color: 'var(--smoke)', marginTop: 4, fontFamily: 'var(--mono)' }}>
           Elapsed {elapsed.toFixed(0)}s · First run on a new ticker takes 2-3 min · subsequent runs are cached.
+        </div>
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ background: 'rgba(237,28,36,0.12)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.25)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.8px', fontFamily: 'var(--mono)' }}>AMD INSTINCT MI300X</span>
+          <span style={{ fontSize: 10, color: 'var(--smoke)', fontFamily: 'var(--mono)' }}>192GB HBM3 · ROCm 7.1 · BF16 inference</span>
         </div>
       </div>
     </div>
@@ -269,8 +276,9 @@ function RegimePageInner() {
           <span className="brand">Regime Engine<span className="brand-dot" /></span>
           <span className="topbar-date">{fmtDate()} · {clock}</span>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--smoke)' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--smoke)' }}>
           <span className="ld" /><span className="ll">HMM + LSTM + Attention</span>
+          <span style={{ background: 'rgba(237,28,36,0.12)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.3)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.8px' }}>AMD MI300X · ROCm 7.1</span>
         </div>
       </header>
 
@@ -361,6 +369,7 @@ function RegimePageInner() {
         <div className="footer">
           DATA · yfinance (daily OHLCV) · FRED (10Y, BAA-AAA, Initial Claims) · CBOE VIX<br />
           ENGINE · regime_dashboard.py v9.4 · 4-regime classifier · 3-way ensemble (Rules + HMM + LSTM)<br />
+          <span style={{ color: '#ED1C24', fontWeight: 700 }}>COMPUTE · AMD Instinct MI300X · 192GB HBM3 · ROCm 7.1 · BF16</span><br />
           Research only · Not investment advice
         </div>
       </main>
