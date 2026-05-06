@@ -6,6 +6,8 @@ node_modules/
 .env.*
 .env(*)
 .env*Shared*
+# Allow the example file
+!.env.example
 # Variants without leading dot (env.local, env(Shared).txt)
 env.local
 env(*)
