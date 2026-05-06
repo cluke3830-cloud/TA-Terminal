@@ -1,6 +1,14 @@
 {
   "functions": {
     "app/api/**/*.js": { "maxDuration": 30 },
-    "app/data_pages/**/*.js": { "maxDuration": 30 }
-  }
+    "app/data_pages/**/*.js": { "maxDuration": 30 },
+    "app/data_pages/regime/run/route.js": { "maxDuration": 300 },
+    "app/api/keepalive/route.js": { "maxDuration": 15 }
+  },
+  "crons": [
+    {
+      "path": "/api/keepalive",
+      "schedule": "*/10 * * * *"
+    }
+  ]
 }

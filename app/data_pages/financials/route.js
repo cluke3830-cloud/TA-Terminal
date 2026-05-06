@@ -1,148 +1,125 @@
+// Financial statements via SEC EDGAR XBRL API — no API key required.
+// Primary: EDGAR companyconcept (official, free, unlimited)
+// Computes: income statement, balance sheet, cash flow, and available ratios.
+// Price-based ratios (P/E, P/B, P/S) are null — EDGAR has no price data.
+
 export const dynamic = 'force-dynamic';
 
 import { getCached, setCache } from '../_cache';
-import YahooFinance from 'yahoo-finance2';
+import { getCIK, bestConcept, quarterly, matchVal, periodLabel } from '../_edgar';
 
-const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+const HOUR = 60 * 60 * 1000;
 
-const FMP = 'https://financialmodelingprep.com/stable';
-
-function num(v) { return v?.raw ?? (typeof v === 'number' ? v : null); }
-function isoDate(d) {
-  if (!d) return null;
-  if (d instanceof Date) return d.toISOString().slice(0, 10);
-  if (typeof d === 'string') return d.slice(0, 10);
-  if (d?.fmt) return d.fmt;
-  return null;
-}
-
-async function fmpFin(symbol, key) {
-  if (!key) return null;
-  const get = async (path) => {
-    try {
-      const r = await fetch(`${FMP}/${path}${path.includes('?') ? '&' : '?'}apikey=${key}`);
-      if (!r.ok) return null;
-      const j = await r.json();
-      if (j?.['Error Message']) return null;
-      return j;
-    } catch { return null; }
-  };
-  const [profile, ratios, income, balance, cashflow] = await Promise.all([
-    get(`profile?symbol=${symbol}`),
-    get(`ratios-ttm?symbol=${symbol}`),
-    get(`income-statement?symbol=${symbol}&period=quarter&limit=5`),
-    get(`balance-sheet-statement?symbol=${symbol}&period=quarter&limit=4`),
-    get(`cash-flow-statement?symbol=${symbol}&period=quarter&limit=4`),
-  ]);
-  const arr = (d) => (Array.isArray(d) ? d : []);
-  if (!profile && !ratios && arr(income).length === 0) return null;
-  return {
-    profile: arr(profile)[0] || {},
-    ratios: arr(ratios)[0] || {},
-    income: arr(income),
-    balance: arr(balance),
-    cashflow: arr(cashflow),
-  };
-}
-
-async function yahooFin(symbol) {
-  const m = await yahoo.quoteSummary(symbol, {
-    modules: [
-      'price', 'summaryProfile', 'financialData', 'defaultKeyStatistics', 'summaryDetail',
-      'incomeStatementHistoryQuarterly', 'balanceSheetHistoryQuarterly', 'cashflowStatementHistoryQuarterly',
-    ],
-  }).catch(() => null);
-  if (!m) return null;
-
-  const fd = m.financialData || {};
-  const ks = m.defaultKeyStatistics || {};
-  const sd = m.summaryDetail || {};
-  const profile = {
-    companyName: m.price?.longName || m.price?.shortName || symbol,
-    name: m.price?.shortName || m.price?.longName || symbol,
-    industry: m.summaryProfile?.industry,
-    sector: m.summaryProfile?.sector,
-  };
-  let peTtm = num(sd.trailingPE);
-  if (peTtm == null) {
-    const eps = num(ks.trailingEps);
-    const price = num(m.price?.regularMarketPrice);
-    if (eps && price) peTtm = price / eps;
-  }
-  const debtEq = num(fd.debtToEquity);
-  const ratios = {
-    priceToEarningsRatioTTM: peTtm,
-    priceToBookRatioTTM: num(ks.priceToBook),
-    priceToSalesRatioTTM: num(sd.priceToSalesTrailing12Months),
-    debtToEquityRatioTTM: debtEq != null ? debtEq / 100 : null,
-    debtToAssetsRatioTTM: null,
-    currentRatioTTM: num(fd.currentRatio),
-    priceToFreeCashFlowRatioTTM: null,
-    grossProfitMarginTTM: num(fd.grossMargins),
-    netProfitMarginTTM: num(fd.profitMargins),
-  };
-
-  const buildPeriod = (date) => {
-    const dStr = isoDate(date);
-    if (!dStr) return { period: 'Q', date: dStr };
-    const month = parseInt(dStr.slice(5, 7), 10);
-    const period = `Q${Math.ceil(month / 3)}`;
-    return { period, date: dStr };
-  };
-
-  const income = (m.incomeStatementHistoryQuarterly?.incomeStatementHistory || []).map((s) => ({
-    ...buildPeriod(s.endDate),
-    revenue: num(s.totalRevenue),
-    netIncome: num(s.netIncome),
-    eps: null,
-  }));
-  const balance = (m.balanceSheetHistoryQuarterly?.balanceSheetStatements || []).map((s) => ({
-    ...buildPeriod(s.endDate),
-    totalAssets: num(s.totalAssets),
-    totalDebt: num(s.shortLongTermDebt) != null && num(s.longTermDebt) != null ? num(s.shortLongTermDebt) + num(s.longTermDebt) : (num(s.longTermDebt) ?? num(s.shortLongTermDebt)),
-    totalStockholdersEquity: num(s.totalStockholderEquity),
-  }));
-  const cashflow = (m.cashflowStatementHistoryQuarterly?.cashflowStatements || []).map((s) => {
-    const op = num(s.totalCashFromOperatingActivities);
-    const capex = num(s.capitalExpenditures);
-    return {
-      ...buildPeriod(s.endDate),
-      operatingCashFlow: op,
-      capitalExpenditure: capex,
-      freeCashFlow: op != null && capex != null ? op + capex : null,
-    };
-  });
-
-  return { profile, ratios, income, balance, cashflow };
-}
-
-// Reusable loader so screener / other server code can call the same Yahoo/FMP path.
 export async function loadFin(symbol) {
   symbol = (symbol || '').toUpperCase();
   if (!symbol) return null;
-  const cacheKey = `fin:${symbol}`;
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
 
-  let result = null;
-  let source = 'fmp';
-  try { result = await fmpFin(symbol, process.env.FMP_API_KEY); } catch (_) {}
-  if (!result) {
-    try { result = await yahooFin(symbol); source = 'yahoo'; } catch (_) {}
-  }
-  if (!result) {
+  const cacheKey = `fin:edgar:${symbol}`;
+  const hit = getCached(cacheKey);
+  if (hit) return hit;
+
+  const cik = await getCIK(symbol);
+  if (!cik) {
     const empty = { profile: {}, ratios: {}, income: [], balance: [], cashflow: [], source: 'unavailable' };
     setCache(cacheKey, empty, 5 * 60 * 1000);
     return empty;
   }
-  result.source = source;
-  setCache(cacheKey, result, 60 * 60 * 1000);
+
+  // Fetch all needed XBRL concepts in parallel
+  const [rev, ni, assets, debt, equity, opCF, capex, gp, curA, curL] = await Promise.all([
+    bestConcept(cik,
+      'Revenues',
+      'RevenueFromContractWithCustomerExcludingAssessedTax',
+      'SalesRevenueNet',
+      'RevenueFromContractWithCustomerIncludingAssessedTax',
+    ),
+    bestConcept(cik, 'NetIncomeLoss', 'ProfitLoss'),
+    bestConcept(cik, 'Assets'),
+    bestConcept(cik, 'LongTermDebt', 'LongTermDebtNoncurrent'),
+    bestConcept(cik, 'StockholdersEquity', 'StockholdersEquityAttributableToParent'),
+    bestConcept(cik, 'NetCashProvidedByUsedInOperatingActivities'),
+    bestConcept(cik, 'PaymentsToAcquirePropertyPlantAndEquipment'),
+    bestConcept(cik, 'GrossProfit'),
+    bestConcept(cik, 'AssetsCurrent'),
+    bestConcept(cik, 'LiabilitiesCurrent'),
+  ]);
+
+  // ── Income statement ──────────────────────────────────────────────────────
+  const revQ = quarterly(rev);
+  const income = revQ.map(e => ({
+    period: periodLabel(e),
+    date: e.end,
+    revenue: e.val,
+    netIncome: matchVal(ni, e.end),
+    eps: null,
+  }));
+
+  // ── Balance sheet ─────────────────────────────────────────────────────────
+  const assetsQ = quarterly(assets);
+  const balance = assetsQ.map(e => ({
+    period: periodLabel(e),
+    date: e.end,
+    totalAssets: e.val,
+    totalDebt: matchVal(debt, e.end),
+    totalStockholdersEquity: matchVal(equity, e.end),
+  }));
+
+  // ── Cash flow ─────────────────────────────────────────────────────────────
+  const opCFQ = quarterly(opCF);
+  const cashflow = opCFQ.map(e => {
+    const capexRaw = matchVal(capex, e.end);
+    const capexAdj = capexRaw != null ? -Math.abs(capexRaw) : null;
+    return {
+      period: periodLabel(e),
+      date: e.end,
+      operatingCashFlow: e.val,
+      capitalExpenditure: capexAdj,
+      freeCashFlow: e.val != null && capexAdj != null ? e.val + capexAdj : null,
+    };
+  });
+
+  // ── Ratios (computed from EDGAR data; price-based ratios left null) ───────
+  const b0 = balance[0] ?? {};
+  const gpVal = quarterly(gp)[0]?.val ?? null;
+  const revVal = revQ[0]?.val ?? null;
+  const ttmNI = income.slice(0, 4).reduce((s, q) => s + (q.netIncome ?? 0), 0);
+  const ttmRev = income.slice(0, 4).reduce((s, q) => s + (q.revenue ?? 0), 0);
+  const curAVal = quarterly(curA)[0]?.val ?? null;
+  const curLVal = quarterly(curL)[0]?.val ?? null;
+
+  const ratios = {
+    priceToEarningsRatioTTM: null,
+    priceToBookRatioTTM: null,
+    priceToSalesRatioTTM: null,
+    debtToEquityRatioTTM:
+      b0.totalDebt != null && b0.totalStockholdersEquity
+        ? b0.totalDebt / b0.totalStockholdersEquity
+        : null,
+    debtToAssetsRatioTTM:
+      b0.totalDebt != null && b0.totalAssets
+        ? b0.totalDebt / b0.totalAssets
+        : null,
+    currentRatioTTM: curAVal && curLVal ? curAVal / curLVal : null,
+    priceToFreeCashFlowRatioTTM: null,
+    grossProfitMarginTTM: gpVal && revVal ? gpVal / revVal : null,
+    netProfitMarginTTM: ttmRev ? ttmNI / ttmRev : null,
+  };
+
+  const result = {
+    profile: { companyName: symbol, name: symbol },
+    ratios,
+    income,
+    balance,
+    cashflow,
+    source: 'edgar',
+  };
+
+  setCache(cacheKey, result, HOUR);
   return result;
 }
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get('symbol') || 'NVDA').toUpperCase();
-  const result = await loadFin(symbol);
-  return Response.json(result);
+  return Response.json(await loadFin(symbol));
 }
