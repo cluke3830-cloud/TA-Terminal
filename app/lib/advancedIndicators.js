@@ -221,32 +221,12 @@ export function removeGaps(bars) {
 }
 
 export function filterConsecutiveSessionBars(bars, tf) {
-  // For intraday, keep all bars that are part of continuous sessions
-  // Remove only truly gapped periods (weekends, market close to open)
-
-  if (!bars || bars.length === 0) return [];
-
-  const filtered = [];
-  let lastTime = null;
-
-  for (const bar of bars) {
-    if (lastTime === null) {
-      filtered.push(bar);
-      lastTime = new Date(bar.t).getTime();
-    } else {
-      const currentTime = new Date(bar.t).getTime();
-      const timeDiff = currentTime - lastTime;
-
-      // For intraday data: if gap is > 24 hours, it's likely a weekend/close-to-open
-      // For daily data: always include (shouldn't be gaps)
-      const isWeekend = timeDiff > 24 * 60 * 60 * 1000;
-
-      if (!isWeekend || tf === '1Day') {
-        filtered.push(bar);
-        lastTime = currentTime;
-      }
-    }
-  }
-
-  return filtered;
+  // No filtering needed — lightweight-charts handles weekend/session gaps
+  // natively. The previous implementation had a bug: when it skipped a bar
+  // after a weekend, it didn't update `lastTime`, so EVERY subsequent bar
+  // was compared to the pre-weekend timestamp and dropped. This caused the
+  // chart to only show data up to the first Friday in any multi-week window
+  // while the header's price stayed at the true latest bar — the dreaded
+  // price mismatch.
+  return bars || [];
 }

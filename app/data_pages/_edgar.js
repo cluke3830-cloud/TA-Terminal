@@ -112,18 +112,22 @@ export async function parseForm4XML(cik, accNo, primaryDoc) {
 
     const rows = [];
 
-    // Open-market buys/sells
+    // Open-market buys/sells (and other non-derivative txns: F=tax, G=gift, etc)
     for (const block of xmlAll(xml, 'nonDerivativeTransaction')) {
       const date = xmlVal(block, 'transactionDate')?.slice(0, 10) ?? null;
       const shares = parseFloat(xmlVal(block, 'transactionShares') ?? '0') || 0;
       const price = parseFloat(xmlVal(block, 'transactionPricePerShare') ?? '0') || 0;
-      // A = Acquired (BUY), D = Disposed (SELL), F = tax withholding (skip)
+      // A = Acquired, D = Disposed, F = tax withholding, M = option exercise, G = gift
       const code = (xmlVal(block, 'transactionAcquiredDisposedCode') ?? '').toUpperCase();
-      if (!date || shares === 0 || code === 'F') continue;
+      if (!date || shares === 0) continue;
+      // Only A/D count as actual buys/sells; everything else is OTHER
+      // but still tracked so the insider name shows up in the aggregate.
+      let type = 'OTHER';
+      if (code === 'A') type = 'BUY';
+      else if (code === 'D') type = 'SELL';
       rows.push({
         date, insider: ownerName, title,
-        type: code === 'A' ? 'BUY' : code === 'D' ? 'SELL' : 'OTHER',
-        rawCode: code, shares, price, value: shares * price, link: url,
+        type, rawCode: code, shares, price, value: shares * price, link: url,
       });
     }
 
