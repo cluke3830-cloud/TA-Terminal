@@ -217,7 +217,7 @@ function DashboardInner() {
                 <div className="rg" style={{ marginBottom: 14 }}>
                   {ratioItems.map((r, i) => <div key={i} className="rb"><div className="rb-l">{r.l}</div><div className="rb-v">{r.v != null ? (r.pct ? (r.v * 100).toFixed(1) + '%' : r.v.toFixed(2)) : '—'}</div></div>)}
                 </div>
-                {ratioItems.every(r => r.v == null) && <div className="loading" style={{ padding: 8, fontSize: 10 }}>Price-based ratios (P/E, P/B, P/S) unavailable — SEC EDGAR does not provide market price data</div>}
+                {ratioItems.every(r => r.v == null) && <div className="loading" style={{ padding: 8, fontSize: 10 }}>Ratios unavailable — EDGAR returned no XBRL data for {sym}</div>}
                 <div className="tabs">
                   {[['income','Income'],['balance','Balance'],['cashflow','Cash Flow']].map(([id, lbl]) => (
                     <button key={id} className={`tab ${tab === id ? 'a' : ''}`} onClick={() => setTab(id)}>{lbl}</button>

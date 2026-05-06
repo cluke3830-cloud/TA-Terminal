@@ -66,6 +66,16 @@ export async function bestConceptShares(cik, ...names) {
   return merged;
 }
 
+// Generic unit variant — for shares outstanding (unit="shares"), pure ratios, etc.
+export async function bestConceptUnit(cik, unit, ...names) {
+  const merged = [];
+  for (const name of names) {
+    const data = await fetchConcept(cik, name, unit);
+    if (data.length) merged.push(...data);
+  }
+  return merged;
+}
+
 // Extract last N distinct quarterly/annual periods from XBRL concept data.
 // Deduplicates by end date, keeping the latest amended filing.
 export function quarterly(data, n = 5) {
