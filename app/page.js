@@ -212,13 +212,13 @@ function DashboardInner() {
           </div>
 
           <div id="sec-fin" className="card">
-            <div className="card-h"><span className="card-t">Financials</span><span className="badge b-p">FMP</span></div>
+            <div className="card-h"><span className="card-t">Financials</span><span className={`badge ${fin?.source === 'edgar' ? 'b-c' : 'b-p'}`}>{(fin?.source || 'edgar').toUpperCase()}</span></div>
             <div className="card-b">
               {ld.fin ? <Load /> : er.fin ? <Err m={er.fin} /> : fin ? <>
                 <div className="rg" style={{ marginBottom: 14 }}>
                   {ratioItems.map((r, i) => <div key={i} className="rb"><div className="rb-l">{r.l}</div><div className="rb-v">{r.v != null ? (r.pct ? (r.v * 100).toFixed(1) + '%' : r.v.toFixed(2)) : '—'}</div></div>)}
                 </div>
-                {ratioItems.every(r => r.v == null) && <div className="loading" style={{ padding: 8, fontSize: 10 }}>Financial ratios unavailable — may require FMP premium plan</div>}
+                {ratioItems.every(r => r.v == null) && <div className="loading" style={{ padding: 8, fontSize: 10 }}>Price-based ratios (P/E, P/B, P/S) unavailable — SEC EDGAR does not provide market price data</div>}
                 <div className="tabs">
                   {[['income','Income'],['balance','Balance'],['cashflow','Cash Flow']].map(([id, lbl]) => (
                     <button key={id} className={`tab ${tab === id ? 'a' : ''}`} onClick={() => setTab(id)}>{lbl}</button>

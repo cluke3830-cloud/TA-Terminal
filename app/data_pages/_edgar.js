@@ -95,7 +95,9 @@ export function xmlAll(xml, tag) {
   return results;
 }
 
-// Parse a single Form 4 XML file, return array of transaction objects
+// Parse a single Form 4 XML file, return array of transaction objects.
+// Handles both nonDerivativeTransaction (open-market) and
+// derivativeTransaction (options/RSUs) — needed for execs like NVDA's.
 export async function parseForm4XML(cik, accNo, primaryDoc) {
   const accNoDash = accNo.replace(/-/g, '');
   const intCik = parseInt(cik, 10);
@@ -109,27 +111,37 @@ export async function parseForm4XML(cik, accNo, primaryDoc) {
     const title = xmlVal(xml, 'officerTitle') || xmlVal(xml, 'relationship');
 
     const rows = [];
+
+    // Open-market buys/sells
     for (const block of xmlAll(xml, 'nonDerivativeTransaction')) {
       const date = xmlVal(block, 'transactionDate')?.slice(0, 10) ?? null;
       const shares = parseFloat(xmlVal(block, 'transactionShares') ?? '0') || 0;
       const price = parseFloat(xmlVal(block, 'transactionPricePerShare') ?? '0') || 0;
-      // SEC Form 4: A = Acquired (BUY), D = Disposed (SELL)
+      // A = Acquired (BUY), D = Disposed (SELL), F = tax withholding (skip)
       const code = (xmlVal(block, 'transactionAcquiredDisposedCode') ?? '').toUpperCase();
-
-      if (!date || shares === 0) continue;
-
+      if (!date || shares === 0 || code === 'F') continue;
       rows.push({
-        date,
-        insider: ownerName,
-        title,
+        date, insider: ownerName, title,
         type: code === 'A' ? 'BUY' : code === 'D' ? 'SELL' : 'OTHER',
-        rawCode: code,
-        shares,
-        price,
-        value: shares * price,
-        link: url,
+        rawCode: code, shares, price, value: shares * price, link: url,
       });
     }
+
+    // Derivative transactions: option exercises, RSU vests (common for tech execs)
+    for (const block of xmlAll(xml, 'derivativeTransaction')) {
+      const date = xmlVal(block, 'transactionDate')?.slice(0, 10) ?? null;
+      // derivativeTransaction uses underlyingSecurityShares for the share count
+      const shares = parseFloat(xmlVal(block, 'transactionShares') ?? xmlVal(block, 'underlyingSecurityShares') ?? '0') || 0;
+      const price = parseFloat(xmlVal(block, 'transactionPricePerShare') ?? xmlVal(block, 'conversionOrExercisePrice') ?? '0') || 0;
+      const code = (xmlVal(block, 'transactionAcquiredDisposedCode') ?? '').toUpperCase();
+      if (!date || shares === 0) continue;
+      rows.push({
+        date, insider: ownerName, title,
+        type: code === 'A' ? 'BUY' : code === 'D' ? 'SELL' : 'OTHER',
+        rawCode: `D-${code}`, shares, price, value: shares * price, link: url,
+      });
+    }
+
     return rows;
   } catch { return []; }
 }
