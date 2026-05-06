@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getCached, setCache } from '../../_cache';
 
 // Snapshot of policy rates — manually maintained. Update when rates change.

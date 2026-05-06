@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getCached, setCache } from '../../_cache';
 
 const SERIES = [

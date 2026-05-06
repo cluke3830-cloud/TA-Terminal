@@ -61,7 +61,7 @@ export default function SentimentRolling({ sym, plotlyReady }) {
       paper_bgcolor: '#111117', plot_bgcolor: '#111117',
       font: { color: '#a0a0b4', family: 'Geist Mono', size: 10 },
       margin: { l: 50, r: 20, t: 32, b: 40 },
-      title: { text: `${sym} News Sentiment · FinBERT (positive − negative)`, font: { size: 12, color: '#a0a0b4' } },
+      title: { text: `${sym} News Sentiment · ${data?.sentimentSource === 'lexicon' ? 'Lexicon' : 'FinBERT'} (positive − negative)`, font: { size: 12, color: '#a0a0b4' } },
       xaxis: { gridcolor: '#282835' },
       yaxis: { title: 'Sentiment score', gridcolor: '#282835', zeroline: false },
       showlegend: false,
@@ -89,6 +89,15 @@ export default function SentimentRolling({ sym, plotlyReady }) {
         <span>7d rolling: <b className={(data.rolling?.d7 ?? 0) >= 0 ? 'vg' : 'vr'}>{data.rolling?.d7?.toFixed(3) ?? '—'}</b></span>
         <span>30d rolling: <b className={(data.rolling?.d30 ?? 0) >= 0 ? 'vg' : 'vr'}>{data.rolling?.d30?.toFixed(3) ?? '—'}</b></span>
         <span style={{ color: 'var(--ash)' }}>{data.articles?.length || 0} headlines scored</span>
+        <span style={{
+          marginLeft: 'auto',
+          background: data.sentimentSource === 'finbert' ? 'rgba(237,28,36,0.12)' : 'rgba(122,122,144,0.18)',
+          color: data.sentimentSource === 'finbert' ? 'var(--amd-red)' : 'var(--mist)',
+          border: `1px solid ${data.sentimentSource === 'finbert' ? 'rgba(237,28,36,0.28)' : 'var(--border)'}`,
+          padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '.7px'
+        }}>
+          {data.sentimentSource === 'finbert' ? 'FINBERT · MI300X' : 'LEXICON FALLBACK'}
+        </span>
       </div>
       <div ref={ref} style={{ height: 280 }} />
       {data.articles?.length > 0 && (

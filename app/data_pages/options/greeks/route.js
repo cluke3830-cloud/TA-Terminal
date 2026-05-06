@@ -43,10 +43,12 @@ export async function GET(req) {
   if (cached) return Response.json(cached);
 
   const origin = new URL(req.url).origin;
-  const upstream = await fetch(`${origin}/data_pages/options?symbol=${symbol}`);
-  if (!upstream.ok) return Response.json({ error: `options upstream ${upstream.status}` }, { status: 502 });
-  const data = await upstream.json();
-  if (data.error) return Response.json({ error: data.error }, { status: 502 });
+  let data = null;
+  try {
+    const upstream = await fetch(`${origin}/data_pages/options?symbol=${symbol}`);
+    if (upstream.ok) data = await upstream.json();
+  } catch { /* fall through to empty */ }
+  if (!data || data.error) return Response.json({ spot: null, r: R, rows: [], msg: 'options data unavailable' });
   const { spot, surface = [] } = data;
   if (!spot || !surface.length) return Response.json({ spot, r: R, rows: [], msg: 'no surface' });
 
