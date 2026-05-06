@@ -219,6 +219,8 @@ function RegimePageInner() {
   const [clock, setClock] = useState('');
   const [startedAt, setStartedAt] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [llm, setLlm] = useState(null);
+  const [llmLoading, setLlmLoading] = useState(false);
 
   // Plotly readiness
   useEffect(() => {
@@ -254,7 +256,33 @@ function RegimePageInner() {
     }
   }, []);
 
-  useEffect(() => { fetchRegime(ticker); }, [ticker, fetchRegime]);
+  useEffect(() => { fetchRegime(ticker); setLlm(null); }, [ticker, fetchRegime]);
+
+  useEffect(() => {
+    if (!data?.info || !data?.meta) return;
+    const r = data.info.cur;
+    const name = data.meta.regimeNames?.[r] ?? `Regime ${r}`;
+    const action = data.meta.regimeActions?.[r] ?? '';
+    const desc = data.meta.regimeDescriptions?.[r] ?? '';
+    setLlmLoading(true);
+    fetch('/api/llm-regime', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticker: data.ticker,
+        regime: name,
+        confidence: data.info.conf,
+        action,
+        description: desc,
+        vix: data.info.features?.vix ?? null,
+        spy_return_20d: data.info.features?.ret_20d ?? null,
+      }),
+    })
+      .then((r) => r.json())
+      .then((j) => setLlm(j))
+      .catch(() => setLlm(null))
+      .finally(() => setLlmLoading(false));
+  }, [data]);
 
   const onLoad = () => {
     const next = (input || '').toUpperCase().trim();
@@ -321,6 +349,21 @@ function RegimePageInner() {
         {loading && !data && <ProgressNote elapsed={elapsed} />}
 
         {info && meta && <HeroPanel ticker={data.ticker} info={info} meta={meta} />}
+
+        {(llmLoading || llm?.summary) && (
+          <section className="rg-section fi" style={{ borderLeft: '2px solid #ED1C24', paddingLeft: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <span style={{ background: 'rgba(237,28,36,0.12)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.28)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.7px', fontFamily: 'var(--mono)' }}>AMD MI300X INFERENCE</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', letterSpacing: '.5px' }}>llama3.2:1b · ROCm 7.1</span>
+              {llm?.elapsed_ms && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ash)', marginLeft: 'auto' }}>{llm.elapsed_ms.toFixed(0)}ms</span>}
+              {llm?.gpu_util_pct != null && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#ED1C24' }}>GPU {llm.gpu_util_pct}%</span>}
+            </div>
+            {llmLoading && !llm?.summary
+              ? <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--smoke)', display: 'flex', alignItems: 'center', gap: 8 }}><div className="spinner" style={{ width: 14, height: 14 }} />Generating regime analysis on MI300X…</div>
+              : <div style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--cloud)', lineHeight: 1.6 }}>{llm?.summary}</div>
+            }
+          </section>
+        )}
 
         {figs.time && (
           <section className="rg-section fi">

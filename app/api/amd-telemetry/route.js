@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-const AMD_DROPLET = process.env.AMD_TELEMETRY_URL || 'http://134.199.205.100:8000';
+const AMD_DROPLET = process.env.AMD_TELEMETRY_URL || 'http://134.199.197.24:8000';
 
 export async function GET() {
   try {
