@@ -1,5 +1,0 @@
-# Get keys from:
-# Alpaca: https://alpaca.markets → Paper Trading → API Keys
-# FMP:    https://financialmodelingprep.com → Dashboard → API Keys
-FRED_API_KEY:  Free: https://fred.stlouisfed.org/docs/api/api_key.html
-EIA_API_KEY:  Free: https://www.eia.gov/opendata/register.php
