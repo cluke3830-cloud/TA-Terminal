@@ -42,22 +42,28 @@ export async function fetchConcept(cik, conceptName, unitKey = 'USD') {
   } catch { return []; }
 }
 
-// Try concept names in order, return first with data
+// MERGE data from all concept names. Companies often switch XBRL concepts
+// between years (e.g. NVDA dropped PaymentsToAcquirePropertyPlantAndEquipment
+// in 2020 for PaymentsToAcquireProductiveAssets). Returning the first match
+// would lock us into stale historical data — merging gives us full coverage.
+// quarterly() dedupes by end date afterwards, keeping the latest filing.
 export async function bestConcept(cik, ...names) {
+  const merged = [];
   for (const name of names) {
     const data = await fetchConcept(cik, name);
-    if (data.length) return data;
+    if (data.length) merged.push(...data);
   }
-  return [];
+  return merged;
 }
 
 // EPS variant — XBRL stores EPS under USD/shares, not USD
 export async function bestConceptShares(cik, ...names) {
+  const merged = [];
   for (const name of names) {
     const data = await fetchConcept(cik, name, 'USD/shares');
-    if (data.length) return data;
+    if (data.length) merged.push(...data);
   }
-  return [];
+  return merged;
 }
 
 // Extract last N distinct quarterly/annual periods from XBRL concept data.
