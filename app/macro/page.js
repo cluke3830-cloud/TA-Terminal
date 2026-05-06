@@ -572,29 +572,45 @@ function MacroDashboardInner() {
         {/* ──────────── 0. FEAR & GREED ──────────── */}
         <section className="msec fi">
           <div className="msec-h">
-            <div className="msec-t"><span className="msec-t-num">00</span>Fear vs Greed · Macro Composite</div>
-            {feargreed && <span className="badge b-c">Score {feargreed.score}</span>}
+            <div className="msec-t"><span className="msec-t-num">00</span>Fear &amp; Greed Index · {feargreed?.source === 'CNN' ? 'CNN Live' : 'Macro Composite'}</div>
+            {feargreed && <span className="badge b-c">{feargreed.source === 'CNN' ? 'CNN · ' : ''}Score {feargreed.score}</span>}
           </div>
           <div className="msec-b">
-            {ld.fg && !feargreed && <Load t="Computing macro composite…" />}
+            {ld.fg && !feargreed && <Load t="Loading Fear & Greed…" />}
             {er.fg && <Err m={er.fg} />}
             {feargreed && (
               <div className="fg-wrap">
                 <div className="fg-gauge">
                   <FearGreedGauge score={feargreed.score} label={feargreed.label} color={feargreed.color} />
+                  {feargreed.source === 'CNN' && feargreed.cnnMeta && (
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', margin: '4px 0 10px', fontFamily: 'var(--mono)', fontSize: 10 }}>
+                      <span style={{ background: 'rgba(0,212,255,0.1)', color: 'var(--neon-cyan)', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 4, padding: '2px 8px', fontWeight: 700, letterSpacing: '.5px' }}>CNN INDEX</span>
+                      {feargreed.cnnMeta.previousClose != null && <span style={{ color: 'var(--mist)' }}>PREV {feargreed.cnnMeta.previousClose.toFixed(0)}</span>}
+                      {feargreed.cnnMeta.prev1w != null && <span style={{ color: 'var(--mist)' }}>1W {feargreed.cnnMeta.prev1w.toFixed(0)}</span>}
+                      {feargreed.cnnMeta.prev1m != null && <span style={{ color: 'var(--mist)' }}>1M {feargreed.cnnMeta.prev1m.toFixed(0)}</span>}
+                      {feargreed.cnnMeta.prev1y != null && <span style={{ color: 'var(--mist)' }}>1Y {feargreed.cnnMeta.prev1y.toFixed(0)}</span>}
+                    </div>
+                  )}
+                  {feargreed.source === 'macro' && (
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#ff8833', textAlign: 'center', margin: '4px 0 10px' }}>
+                      CNN unavailable — showing macro composite
+                    </div>
+                  )}
                 </div>
                 <div className="fg-cmp">
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--mist)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 10 }}>
+                    {feargreed.source === 'CNN' ? 'CNN Sub-Indicators' : 'Macro Sub-Indicators'}
+                  </div>
                   {feargreed.components.map((c) => {
                     const barColor = c.score < 40 ? '#ff3355' : c.score > 60 ? '#00f59b' : '#ffc700';
                     return (
                       <div key={c.name} className="fg-row">
                         <div>
                           <div className="fg-row-n">{c.name}</div>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', marginTop: 2 }}>{c.desc}</div>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', marginTop: 2, textTransform: 'capitalize' }}>{c.desc || c.signal?.toLowerCase()}</div>
                         </div>
                         <div className="fg-row-bar"><div className="fg-row-bar-f" style={{ width: c.score + '%', background: barColor }} /></div>
                         <div className="fg-row-s" style={{ color: barColor }}>{c.score.toFixed(0)}</div>
-                        <div className="fg-row-w">W: {(c.weight * 100).toFixed(0)}%</div>
                       </div>
                     );
                   })}

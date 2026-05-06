@@ -22,7 +22,7 @@ function greeks(S, K, T, r, sigma, type) {
   const Nd1 = ncdf(d1), Nd2 = ncdf(d2);
   const phi = npdf(d1);
   const gamma = phi / (S * sigma * sT);
-  const vega = (S * phi * sT) / 100; // per 1% vol move
+  const vega = (S * phi * sT) / 100;
   if (type === 'call') {
     const delta = Nd1;
     const theta = (-(S * phi * sigma) / (2 * sT) - r * K * Math.exp(-r * T) * Nd2) / 365;
@@ -33,6 +33,66 @@ function greeks(S, K, T, r, sigma, type) {
   const theta = (-(S * phi * sigma) / (2 * sT) + r * K * Math.exp(-r * T) * ncdf(-d2)) / 365;
   const rho = (-K * T * Math.exp(-r * T) * ncdf(-d2)) / 100;
   return { delta, gamma, vega, theta, rho };
+}
+
+// Yahoo fallback for spot when Alpaca is unavailable.
+async function yahooSpot(symbol) {
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const result = j?.chart?.result?.[0];
+    const closes = result?.indicators?.quote?.[0]?.close?.filter((c) => c != null) || [];
+    if (closes.length === 0) return null;
+    const spot = closes[closes.length - 1];
+    if (closes.length > 5) {
+      const rets = [];
+      for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+      const mu = rets.reduce((a, b) => a + b, 0) / rets.length;
+      const variance = rets.reduce((a, b) => a + (b - mu) ** 2, 0) / Math.max(rets.length - 1, 1);
+      const rv = Math.sqrt(variance * 252) * 100;
+      return { spot, rv };
+    }
+    return { spot, rv: 30 };
+  } catch { return null; }
+}
+
+// Build synthetic Greek table from spot + RV with vol smile + term structure.
+function syntheticGreeks(spot, rv) {
+  const atmIV = (rv || 30) * 1.05;
+  const dtes = [7, 14, 30, 45, 60, 90];
+  const moneyness = [0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15];
+  const today = new Date();
+  const rows = [];
+  for (const dte of dtes) {
+    const expDate = new Date(today.getTime() + dte * 86400000);
+    const exp = expDate.toISOString().split('T')[0];
+    for (const m of moneyness) {
+      const K = +(spot * m).toFixed(2);
+      const skew = 0.10 * Math.pow(1 - m, 2) + 0.03 * (1 - m);
+      const term = 0.02 * Math.exp(-dte / 60);
+      const ivPct = +(atmIV + skew * 100 + term * 100).toFixed(2);
+      const sigma = ivPct / 100;
+      const T = dte / 365;
+      const atm = m === 1.00;
+      for (const type of ['call', 'put']) {
+        const g = greeks(spot, K, T, R, sigma, type);
+        rows.push({
+          strike: K, exp, dte, T,
+          type: type === 'call' ? 'C' : 'P',
+          iv: ivPct, synthetic: true, atm,
+          delta: +g.delta.toFixed(4),
+          gamma: +g.gamma.toFixed(5),
+          vega: +g.vega.toFixed(4),
+          theta: +g.theta.toFixed(4),
+          rho: +g.rho.toFixed(4),
+        });
+      }
+    }
+  }
+  return rows;
 }
 
 export async function GET(req) {
@@ -47,12 +107,25 @@ export async function GET(req) {
   try {
     const upstream = await fetch(`${origin}/data_pages/options?symbol=${symbol}`);
     if (upstream.ok) data = await upstream.json();
-  } catch { /* fall through to empty */ }
-  if (!data || data.error) return Response.json({ spot: null, r: R, rows: [], msg: 'options data unavailable' });
-  const { spot, surface = [] } = data;
-  if (!spot || !surface.length) return Response.json({ spot, r: R, rows: [], msg: 'no surface' });
+  } catch { /* fall through */ }
 
-  // ATM strike per expiry → row closest to spot.
+  let spot = data?.spot;
+  let surface = data?.surface || [];
+
+  // Fallback: synthesize from Yahoo spot + RV if real surface is empty
+  if (!surface.length) {
+    const yh = await yahooSpot(symbol);
+    if (yh) {
+      spot = yh.spot;
+      const rows = syntheticGreeks(yh.spot, yh.rv);
+      const result = { spot, r: R, rows, synthetic: true, ts: new Date().toISOString() };
+      setCache(cacheKey, result, 5 * 60 * 1000);
+      return Response.json(result);
+    }
+    return Response.json({ spot: null, r: R, rows: [], msg: 'options data unavailable' });
+  }
+
+  // Real surface path
   const byExp = {};
   surface.forEach((p) => {
     const exp = p.exp || `dte-${p.dte}`;
@@ -75,14 +148,9 @@ export async function GET(req) {
     const exp = p.exp || `dte-${p.dte}`;
     const atm = atmKeyByExp[exp] === `${p.strike}-${p.type}`;
     return {
-      strike: p.strike,
-      exp,
-      dte: p.dte,
-      T,
+      strike: p.strike, exp, dte: p.dte, T,
       type: p.type === 'call' ? 'C' : 'P',
-      iv: p.iv,
-      synthetic: !!p.synthetic,
-      atm,
+      iv: p.iv, synthetic: !!p.synthetic, atm,
       delta: +g.delta.toFixed(4),
       gamma: +g.gamma.toFixed(5),
       vega: +g.vega.toFixed(4),

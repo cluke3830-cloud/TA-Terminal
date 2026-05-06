@@ -89,18 +89,17 @@ export default function MacroFgWidget() {
           )}
         </div>
         <div className="fg-cmp">
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 8 }}>Macro Sub-Indicators</div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 8 }}>{fg.source === 'CNN' ? 'CNN Sub-Indicators' : 'Macro Sub-Indicators'}</div>
           {(fg.components || []).map((c) => {
             const barColor = c.score < 40 ? '#ff3355' : c.score > 60 ? '#00f59b' : '#ffc700';
             return (
               <div key={c.name} className="fg-row">
                 <div>
                   <div className="fg-row-n">{c.name}</div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', marginTop: 2 }}>{c.desc}</div>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', marginTop: 2, textTransform: 'capitalize' }}>{c.desc || c.signal?.toLowerCase()}</div>
                 </div>
                 <div className="fg-row-bar"><div className="fg-row-bar-f" style={{ width: c.score + '%', background: barColor }} /></div>
                 <div className="fg-row-s" style={{ color: barColor }}>{c.score.toFixed(0)}</div>
-                <div className="fg-row-w">W: {(c.weight * 100).toFixed(0)}%</div>
               </div>
             );
           })}
