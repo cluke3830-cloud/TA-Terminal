@@ -25,24 +25,28 @@ export async function loadFin(symbol) {
     return empty;
   }
 
-  // Fetch all needed XBRL concepts in parallel
-  const [rev, ni, assets, debt, equity, opCF, capex, gp, curA, curL] = await Promise.all([
-    bestConcept(cik,
-      'Revenues',
-      'RevenueFromContractWithCustomerExcludingAssessedTax',
-      'SalesRevenueNet',
-      'RevenueFromContractWithCustomerIncludingAssessedTax',
-    ),
-    bestConcept(cik, 'NetIncomeLoss', 'ProfitLoss'),
-    bestConcept(cik, 'Assets'),
-    bestConcept(cik, 'LongTermDebt', 'LongTermDebtNoncurrent'),
-    bestConcept(cik, 'StockholdersEquity', 'StockholdersEquityAttributableToParent'),
-    bestConcept(cik, 'NetCashProvidedByUsedInOperatingActivities'),
-    bestConcept(cik, 'PaymentsToAcquirePropertyPlantAndEquipment'),
-    bestConcept(cik, 'GrossProfit'),
-    bestConcept(cik, 'AssetsCurrent'),
-    bestConcept(cik, 'LiabilitiesCurrent'),
-  ]);
+  // Fetch XBRL concepts in batches of 3 to stay under EDGAR's 10 req/sec limit.
+  // Each bestConcept() may make 1-4 sequential requests internally.
+  const conceptDefs = [
+    () => bestConcept(cik, 'Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax'),
+    () => bestConcept(cik, 'NetIncomeLoss', 'ProfitLoss'),
+    () => bestConcept(cik, 'Assets'),
+    () => bestConcept(cik, 'LongTermDebt', 'LongTermDebtNoncurrent'),
+    () => bestConcept(cik, 'StockholdersEquity', 'StockholdersEquityAttributableToParent'),
+    () => bestConcept(cik, 'NetCashProvidedByUsedInOperatingActivities'),
+    () => bestConcept(cik, 'PaymentsToAcquirePropertyPlantAndEquipment'),
+    () => bestConcept(cik, 'GrossProfit'),
+    () => bestConcept(cik, 'AssetsCurrent'),
+    () => bestConcept(cik, 'LiabilitiesCurrent'),
+  ];
+
+  const results = [];
+  for (let i = 0; i < conceptDefs.length; i += 3) {
+    const batch = await Promise.all(conceptDefs.slice(i, i + 3).map(fn => fn()));
+    results.push(...batch);
+    if (i + 3 < conceptDefs.length) await new Promise(r => setTimeout(r, 400));
+  }
+  const [rev, ni, assets, debt, equity, opCF, capex, gp, curA, curL] = results;
 
   // ── Income statement ──────────────────────────────────────────────────────
   const revQ = quarterly(rev);

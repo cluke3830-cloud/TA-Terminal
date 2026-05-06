@@ -3,6 +3,8 @@
     "app/api/**/*.js": { "maxDuration": 30 },
     "app/data_pages/**/*.js": { "maxDuration": 30 },
     "app/data_pages/regime/run/route.js": { "maxDuration": 300 },
+    "app/data_pages/financials/route.js": { "maxDuration": 60 },
+    "app/data_pages/insider/route.js": { "maxDuration": 60 },
     "app/api/keepalive/route.js": { "maxDuration": 15 }
   },
   "crons": [

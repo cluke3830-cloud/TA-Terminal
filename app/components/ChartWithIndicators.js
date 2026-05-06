@@ -126,6 +126,10 @@ export default function ChartWithIndicators({
   // LWC module cache
   const lwcRef = useRef(null);
 
+  // Track previous days/tf so we know when the user changed the preset
+  const prevDaysRef = useRef(days);
+  const prevTfRef = useRef(tf);
+
   const handleToggleIndicator = useCallback((id) => {
     setIndicators(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
@@ -282,21 +286,31 @@ export default function ChartWithIndicators({
       stochDRef.current?.setData(s.map((x, i) => x.d != null ? { time: times[i], value: x.d } : null).filter(Boolean));
     }
 
-    // Always snap to the latest bar when data changes (e.g. switching day presets).
+    // Only fit on first load (no existing range). Day/tf-change fitting is
+    // handled by the dedicated effect below which tracks preset changes.
     if (mainChartRef.current) {
       const ts = mainChartRef.current.timeScale();
       try {
-        const range = ts.getVisibleRange();
-        if (!range) {
-          ts.fitContent();
-        } else {
-          ts.scrollToRealtime();
-        }
-      } catch {
-        try { ts.fitContent(); } catch {}
-      }
+        if (!ts.getVisibleRange()) ts.fitContent();
+      } catch {}
     }
   }, [bars, tf, tz, chartType, chartReady]);
+
+  // ── 3b) Fit content whenever the user changes day preset or timeframe ─────
+  useEffect(() => {
+    const daysChanged = days !== prevDaysRef.current;
+    const tfChanged   = tf   !== prevTfRef.current;
+    prevDaysRef.current = days;
+    prevTfRef.current   = tf;
+
+    if (!(daysChanged || tfChanged) || !chartReady || !mainChartRef.current) return;
+
+    // Defer one frame so LWC has time to process the new setData() call first
+    const id = requestAnimationFrame(() => {
+      try { mainChartRef.current?.timeScale().fitContent(); } catch {}
+    });
+    return () => cancelAnimationFrame(id);
+  }, [days, tf, chartReady]);
 
   // ── 4) Volume toggle ─────────────────────────────────────────────────────
   useEffect(() => {

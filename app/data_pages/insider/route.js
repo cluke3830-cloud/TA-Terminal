@@ -8,7 +8,7 @@ import { getCached, setCache } from '../_cache';
 import { getCIK, EDGAR_HEADERS, parseForm4XML, batchFetch } from '../_edgar';
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
-const MAX_FILINGS = 30;
+const MAX_FILINGS = 20;
 
 function summarize(rows) {
   let buyCount = 0, sellCount = 0, netShares = 0, netUSD = 0, buyUSD = 0, sellUSD = 0;
@@ -110,9 +110,9 @@ export async function GET(req) {
     return Response.json(empty);
   }
 
-  // Fetch and parse Form 4 XMLs in batches (5 at a time, ~600ms gap = ~8 req/sec)
+  // Fetch and parse Form 4 XMLs in batches (4 at a time, ~500ms gap = ~8 req/sec)
   const tasks = filings.map(f => () => parseForm4XML(cik, f.acc, f.primaryDoc));
-  const parsed = await batchFetch(tasks, 5, 600);
+  const parsed = await batchFetch(tasks, 4, 500);
 
   const allRows = parsed.flat().filter(r => r.date && r.insider);
   const transactions = [...allRows]
