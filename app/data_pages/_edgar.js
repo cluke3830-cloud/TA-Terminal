@@ -28,7 +28,9 @@ export async function getCIK(symbol) {
 }
 
 // ── XBRL companyconcept fetcher ──────────────────────────────────────────────
-export async function fetchConcept(cik, conceptName) {
+// EPS comes back under "USD/shares" not "USD". The unitKey arg lets callers
+// fetch share-based metrics like EarningsPerShareDiluted.
+export async function fetchConcept(cik, conceptName, unitKey = 'USD') {
   try {
     const r = await fetch(
       `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/us-gaap/${conceptName}.json`,
@@ -36,7 +38,7 @@ export async function fetchConcept(cik, conceptName) {
     );
     if (!r.ok) return [];
     const j = await r.json();
-    return j?.units?.USD ?? [];
+    return j?.units?.[unitKey] ?? [];
   } catch { return []; }
 }
 
@@ -44,6 +46,15 @@ export async function fetchConcept(cik, conceptName) {
 export async function bestConcept(cik, ...names) {
   for (const name of names) {
     const data = await fetchConcept(cik, name);
+    if (data.length) return data;
+  }
+  return [];
+}
+
+// EPS variant — XBRL stores EPS under USD/shares, not USD
+export async function bestConceptShares(cik, ...names) {
+  for (const name of names) {
+    const data = await fetchConcept(cik, name, 'USD/shares');
     if (data.length) return data;
   }
   return [];

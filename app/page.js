@@ -3,7 +3,6 @@ import './globals.css';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ChartWithIndicators from './components/ChartWithIndicators';
-import InsiderCard from './components/InsiderCard';
 import HoldingsCard from './components/HoldingsCard';
 import ShortInterestCard from './components/ShortInterestCard';
 
@@ -241,17 +240,16 @@ function DashboardInner() {
           </div>
         </div>
 
-        {/* SMART MONEY ROW — Insider / 13F / Short Interest */}
+        {/* SMART MONEY ROW — Short Interest / 13F Holdings */}
         <div id="sec-smart" className="fi fi3" style={{ padding: '0 18px 22px' }}>
           <div className="sl" style={{ marginBottom: 10, paddingTop: 4, fontSize: 11, color: 'var(--mist)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ background: 'var(--cyan-dim)', color: 'var(--neon-cyan)', padding: '2px 8px', borderRadius: 3, fontSize: 9, letterSpacing: 1.2 }}>SMART MONEY</span>
-            <span style={{ color: 'var(--ash)' }}>Insider Form 4 · 13F Holdings · FINRA Short Interest</span>
+            <span style={{ color: 'var(--ash)' }}>FINRA Short Interest · 13F Holdings</span>
           </div>
-          <div className="g2" style={{ marginBottom: 18 }}>
-            <InsiderCard symbol={sym} />
+          <div className="g2">
+            <ShortInterestCard symbol={sym} />
             <HoldingsCard symbol={sym} />
           </div>
-          <ShortInterestCard symbol={sym} />
         </div>
 
         {/* IV/Greeks/MC moved to dedicated /options page — link out from here. */}

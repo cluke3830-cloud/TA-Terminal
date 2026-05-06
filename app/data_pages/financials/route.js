@@ -6,7 +6,7 @@
 export const dynamic = 'force-dynamic';
 
 import { getCached, setCache } from '../_cache';
-import { getCIK, bestConcept, quarterly, matchVal, periodLabel } from '../_edgar';
+import { getCIK, bestConcept, bestConceptShares, quarterly, matchVal, periodLabel } from '../_edgar';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -43,6 +43,7 @@ export async function loadFin(symbol) {
     () => bestConcept(cik, 'GrossProfit'),
     () => bestConcept(cik, 'AssetsCurrent'),
     () => bestConcept(cik, 'LiabilitiesCurrent'),
+    () => bestConceptShares(cik, 'EarningsPerShareDiluted', 'EarningsPerShareBasic'),
   ];
 
   const results = [];
@@ -51,7 +52,7 @@ export async function loadFin(symbol) {
     results.push(...batch);
     if (i + 3 < conceptDefs.length) await new Promise(r => setTimeout(r, 400));
   }
-  const [rev, ni, assets, debt, equity, opCF, capex, gp, curA, curL] = results;
+  const [rev, ni, assets, debt, equity, opCF, capex, gp, curA, curL, eps] = results;
 
   // ── Income statement ──────────────────────────────────────────────────────
   const revQ = quarterly(rev);
@@ -60,7 +61,7 @@ export async function loadFin(symbol) {
     date: e.end,
     revenue: e.val,
     netIncome: matchVal(ni, e.end),
-    eps: null,
+    eps: matchVal(eps, e.end),
   }));
 
   // ── Balance sheet ─────────────────────────────────────────────────────────

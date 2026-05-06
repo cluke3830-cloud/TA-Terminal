@@ -61,7 +61,6 @@ const DAYS_PRESETS = [
   { id: 7, label: '1W' },
   { id: 14, label: '2W' },
   { id: 28, label: '4W' },
-  { id: 90, label: '3M' },
 ];
 
 const baseChartOptions = {
