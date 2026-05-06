@@ -5,11 +5,6 @@ import { getCached, setCache } from '../_cache';
 const FMP = 'https://financialmodelingprep.com';
 const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
-// FMP free-tier (post-Aug-2025) only exposes the AGGREGATE 13F summary, not
-// per-holder positions. We pull the last 4 quarterly snapshots and surface
-// the QoQ flow (new/closed/increased/reduced + ownership %) instead of a
-// top-holders list.
-
 async function fetchQuarter(symbol, year, q, key) {
   try {
     const r = await fetch(
@@ -25,10 +20,7 @@ async function fetchQuarter(symbol, year, q, key) {
 
 function normalizeQuarter(it) {
   if (!it) return null;
-  const num = (v) => {
-    const n = +v;
-    return isFinite(n) ? n : null;
-  };
+  const num = (v) => { const n = +v; return isFinite(n) ? n : null; };
   return {
     date: it.date || null,
     investorsHolding: num(it.investorsHolding),
@@ -49,15 +41,11 @@ function normalizeQuarter(it) {
   };
 }
 
-// Walk back from "now" through up to 8 quarter slots (some may be empty
-// because the filing window hasn't closed yet).
 function recentQuarters(maxBack = 8) {
   const out = [];
   const now = new Date();
-  // Filings settle ~45 days after quarter-end, so start one quarter back from
-  // the current calendar quarter to avoid a perpetual empty slot.
   let y = now.getUTCFullYear();
-  let q = Math.floor(now.getUTCMonth() / 3); // current quarter index 0..3, but we want the PRIOR one
+  let q = Math.floor(now.getUTCMonth() / 3);
   if (q === 0) { q = 4; y -= 1; }
   for (let i = 0; i < maxBack; i++) {
     out.push({ year: y, quarter: q });
@@ -65,6 +53,76 @@ function recentQuarters(maxBack = 8) {
     if (q < 1) { q = 4; y -= 1; }
   }
   return out;
+}
+
+// Yahoo Finance fallback — always free, no key needed.
+async function fetchYahoo13F(symbol) {
+  try {
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=majorHoldersBreakdown,netSharePurchaseActivity`,
+      { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, cache: 'no-store' }
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    const res = j?.quoteSummary?.result?.[0];
+    if (!res) return null;
+
+    const mhb = res.majorHoldersBreakdown || {};
+    const nspa = res.netSharePurchaseActivity || {};
+
+    const instPct = mhb.institutionsPercentHeld?.raw ?? null;   // 0-1 scale
+    const instCount = mhb.institutionCount?.raw ?? null;
+    const buys = nspa.buyInfoCount?.raw ?? null;
+    const sells = nspa.sellInfoCount?.raw ?? null;
+    const buyShares = nspa.buyInfoShares?.raw ?? null;
+    const sellShares = nspa.sellInfoShares?.raw ?? null;
+    const period = nspa.period || null;
+
+    if (instPct == null && instCount == null) return null;
+
+    const flowScore = (buys != null && sells != null && (buys + sells) > 0)
+      ? (buys - sells) / (buys + sells) : null;
+
+    // Build a single synthetic "current" quarter so the table renders.
+    const today = new Date().toISOString().slice(0, 10);
+    const syntheticQuarter = {
+      date: period || today,
+      investorsHolding: instCount,
+      investorsHoldingChange: null,
+      numberOf13Fshares: buyShares != null && sellShares != null ? buyShares - sellShares : null,
+      numberOf13FsharesChange: null,
+      totalInvested: null,
+      totalInvestedChange: null,
+      ownershipPercent: instPct != null ? instPct * 100 : null,
+      lastOwnershipPercent: null,
+      newPositions: buys,
+      closedPositions: sells,
+      increasedPositions: null,
+      reducedPositions: null,
+      putCallRatio: null,
+    };
+
+    const summary = {
+      asOf: period || today,
+      ownershipPercent: instPct != null ? instPct * 100 : null,
+      ownershipPercentChange: null,
+      investorsHolding: instCount,
+      investorsHoldingChange: null,
+      totalInvested: null,
+      totalInvestedChange: null,
+      numberOf13Fshares: syntheticQuarter.numberOf13Fshares,
+      sharesPctChange: null,
+      newPositions: buys,
+      closedPositions: sells,
+      increasedPositions: null,
+      reducedPositions: null,
+      putCallRatio: null,
+      churnRatio: null,
+      flowScore,
+    };
+
+    return { summary, history: [syntheticQuarter], source: 'yahoo' };
+  } catch { return null; }
 }
 
 export async function GET(req) {
@@ -77,83 +135,59 @@ export async function GET(req) {
   if (cached) return Response.json(cached);
 
   const key = process.env.FMP_API_KEY;
-  if (!key) {
-    const empty = { symbol, source: 'unavailable', summary: {}, history: [], ts: new Date().toISOString() };
-    setCache(cacheKey, empty, 30 * 60 * 1000);
-    return Response.json(empty);
+
+  // Try FMP first if key is available.
+  if (key) {
+    const slots = recentQuarters(6);
+    const fetched = await Promise.all(slots.map((s) => fetchQuarter(symbol, s.year, s.quarter, key)));
+    let history = fetched.map(normalizeQuarter).filter(Boolean);
+    history.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    while (history.length >= 2) {
+      const last = history[history.length - 1];
+      const prior = history[history.length - 2];
+      if (last.investorsHolding != null && prior.investorsHolding > 0
+          && last.investorsHolding < 0.6 * prior.investorsHolding) {
+        history.pop();
+      } else break;
+    }
+
+    if (history.length) {
+      const latest = history[history.length - 1];
+      const prev = history[history.length - 2] || {};
+      const sharesPctChange = (prev.numberOf13Fshares && latest.numberOf13Fshares != null)
+        ? (latest.numberOf13Fshares - prev.numberOf13Fshares) / prev.numberOf13Fshares : null;
+      const adds = (latest.newPositions || 0) + (latest.increasedPositions || 0);
+      const cuts = (latest.closedPositions || 0) + (latest.reducedPositions || 0);
+      const flowScore = (adds + cuts) > 0 ? (adds - cuts) / (adds + cuts) : null;
+      const activeMoves = adds + cuts;
+      const churnRatio = (latest.investorsHolding || 0) > 0 ? activeMoves / latest.investorsHolding : null;
+      const summary = {
+        asOf: latest.date, ownershipPercent: latest.ownershipPercent,
+        ownershipPercentChange: latest.ownershipPercent != null && latest.lastOwnershipPercent != null
+          ? latest.ownershipPercent - latest.lastOwnershipPercent : null,
+        investorsHolding: latest.investorsHolding, investorsHoldingChange: latest.investorsHoldingChange,
+        totalInvested: latest.totalInvested, totalInvestedChange: latest.totalInvestedChange,
+        numberOf13Fshares: latest.numberOf13Fshares, sharesPctChange,
+        newPositions: latest.newPositions, closedPositions: latest.closedPositions,
+        increasedPositions: latest.increasedPositions, reducedPositions: latest.reducedPositions,
+        putCallRatio: latest.putCallRatio, churnRatio, flowScore,
+      };
+      const out = { symbol, summary, history, source: 'fmp', ts: new Date().toISOString() };
+      setCache(cacheKey, out, TWELVE_HOURS);
+      return Response.json(out);
+    }
   }
 
-  const slots = recentQuarters(6);
-  const fetched = await Promise.all(slots.map((s) => fetchQuarter(symbol, s.year, s.quarter, key)));
-  let history = fetched.map(normalizeQuarter).filter(Boolean);
-  // Sort ascending by date so the UI can plot newest-on-the-right.
-  history.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-  // Drop trailing quarters that are still in the 45-day filing window — they
-  // appear with a fraction of the holder count of the prior period and look
-  // like a crash even though they're just under-reported. Heuristic: holder
-  // count < 60% of the prior quarter's count.
-  while (history.length >= 2) {
-    const last = history[history.length - 1];
-    const prior = history[history.length - 2];
-    if (last.investorsHolding != null && prior.investorsHolding > 0
-        && last.investorsHolding < 0.6 * prior.investorsHolding) {
-      history.pop();
-    } else break;
+  // Fallback: Yahoo Finance institutional ownership data.
+  const yahoo = await fetchYahoo13F(symbol);
+  if (yahoo) {
+    const out = { symbol, ...yahoo, ts: new Date().toISOString() };
+    setCache(cacheKey, out, TWELVE_HOURS);
+    return Response.json(out);
   }
 
-  if (!history.length) {
-    const empty = { symbol, source: 'unavailable', summary: {}, history: [], ts: new Date().toISOString() };
-    setCache(cacheKey, empty, 30 * 60 * 1000);
-    return Response.json(empty);
-  }
-
-  const latest = history[history.length - 1];
-  const prev = history[history.length - 2] || {};
-
-  // % change-in-shares vs prior quarter, normalized to a fraction.
-  const sharesPctChange = (prev.numberOf13Fshares && latest.numberOf13Fshares != null)
-    ? (latest.numberOf13Fshares - prev.numberOf13Fshares) / prev.numberOf13Fshares
-    : null;
-
-  // Activity ratio: how much portfolio churn is happening.
-  const activeMoves = (latest.newPositions || 0) + (latest.closedPositions || 0)
-    + (latest.increasedPositions || 0) + (latest.reducedPositions || 0);
-  const totalHolders = latest.investorsHolding || 0;
-  const churnRatio = totalHolders > 0 ? activeMoves / totalHolders : null;
-
-  // Bullish flow score: net positions added vs reduced as a fraction of total.
-  const adds = (latest.newPositions || 0) + (latest.increasedPositions || 0);
-  const cuts = (latest.closedPositions || 0) + (latest.reducedPositions || 0);
-  const flowScore = (adds + cuts) > 0 ? (adds - cuts) / (adds + cuts) : null;
-
-  const summary = {
-    asOf: latest.date,
-    ownershipPercent: latest.ownershipPercent,           // 0-100 scale from FMP
-    ownershipPercentChange: latest.ownershipPercent != null && latest.lastOwnershipPercent != null
-      ? latest.ownershipPercent - latest.lastOwnershipPercent : null,
-    investorsHolding: latest.investorsHolding,
-    investorsHoldingChange: latest.investorsHoldingChange,
-    totalInvested: latest.totalInvested,
-    totalInvestedChange: latest.totalInvestedChange,
-    numberOf13Fshares: latest.numberOf13Fshares,
-    sharesPctChange,
-    newPositions: latest.newPositions,
-    closedPositions: latest.closedPositions,
-    increasedPositions: latest.increasedPositions,
-    reducedPositions: latest.reducedPositions,
-    putCallRatio: latest.putCallRatio,
-    churnRatio,
-    flowScore, // -1 (all cuts) .. +1 (all adds)
-  };
-
-  const out = {
-    symbol,
-    summary,
-    history,
-    source: 'fmp',
-    ts: new Date().toISOString(),
-  };
-  setCache(cacheKey, out, TWELVE_HOURS);
-  return Response.json(out);
+  const empty = { symbol, source: 'unavailable', summary: {}, history: [], ts: new Date().toISOString() };
+  setCache(cacheKey, empty, 30 * 60 * 1000);
+  return Response.json(empty);
 }
