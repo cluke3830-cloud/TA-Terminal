@@ -157,7 +157,7 @@ function OptionsInner() {
       {/* ROW 4b: News sentiment via FinBERT (full width) */}
       <div className="fi fi4" style={{ padding: '0 18px' }}>
         <div className="card">
-          <div className="card-h"><span className="card-t">News Sentiment · FinBERT on MI300X</span><span className="badge b-p">{sym} · 7d/30d rolling</span></div>
+          <div className="card-h"><span className="card-t">News Sentiment · FinBERT on MI300X</span><span className="amd-badge" style={{ marginRight: 6 }}>AMD MI300X</span><span className="badge b-p">{sym} · 7d/30d rolling</span></div>
           <SentimentRolling sym={sym} plotlyReady={plotlyReady} />
         </div>
       </div>
@@ -165,7 +165,7 @@ function OptionsInner() {
       {/* ROW 5: Monte Carlo Option Pricer (embedded) */}
       <div className="fi fi4" style={{ padding: '0 18px 24px' }}>
         <div className="card">
-          <div className="card-h"><span className="card-t">Monte Carlo Option Pricer · MI300X</span><span className="badge b-g">{sym} pre-filled</span></div>
+          <div className="card-h"><span className="card-t">Monte Carlo Option Pricer · MI300X</span><span className="amd-badge" style={{ marginRight: 6 }}>AMD MI300X</span><span className="badge b-g">{sym} pre-filled</span></div>
           <McEmbed sym={sym} />
         </div>
       </div>

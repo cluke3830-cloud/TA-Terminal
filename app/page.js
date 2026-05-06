@@ -201,10 +201,13 @@ function DashboardInner() {
                 ) : <div className="loading" style={{ padding: 16 }}>No earnings estimate history available for {sym}</div>}
                 {earn.quarterly_income?.length > 0 && (
                   <div style={{ marginTop: 16 }}><div className="sl">Quarterly Revenue</div>
-                    <div className="rvb">{[...earn.quarterly_income].reverse().slice(-8).map((q, i, arr) => {
+                    <div className="rvb">{[...earn.quarterly_income].filter(q => q.date).sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(-8).map((q, i, arr) => {
                       const max = Math.max(...arr.map(a => a.revenue || 0));
                       const pct = max > 0 ? ((q.revenue || 0) / max) : 0;
-                      return <div key={i} className="rvb-c"><div className="rvb-bar" style={{ height: `${Math.max(pct * 70, 2)}px`, background: 'linear-gradient(to top, rgba(0,212,255,.6), rgba(0,245,155,.6))' }} /><div className="rvb-l">{q.period}</div></div>;
+                      const prev = arr[i - 1];
+                      const isGrowth = prev?.revenue != null ? q.revenue > prev.revenue : null;
+                      const bg = isGrowth === true ? 'linear-gradient(to top, rgba(0,245,155,.5), rgba(0,245,155,.85))' : isGrowth === false ? 'linear-gradient(to top, rgba(255,51,85,.5), rgba(255,51,85,.85))' : 'linear-gradient(to top, rgba(0,212,255,.6), rgba(0,245,155,.6))';
+                      return <div key={i} className="rvb-c"><div className="rvb-bar" style={{ height: `${Math.max(pct * 70, 2)}px`, background: bg }} /><div className="rvb-l">{q.period}</div></div>;
                     })}</div></div>
                 )}
               </> : <div className="loading" style={{ padding: 24 }}>No earnings data available for {sym}</div>}

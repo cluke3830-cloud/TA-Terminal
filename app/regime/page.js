@@ -145,7 +145,7 @@ function HeroPanel({ ticker, info, meta }) {
           <div><span className="rg-fog">Expected: </span><b>{durText}</b></div>
           <div><span className="rg-fog">Models: </span><b>{modelTag(info)}</b></div>
           <div style={{ marginTop: 6 }}>
-            <span style={{ background: 'rgba(237,28,36,0.1)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.25)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.6px', fontFamily: 'var(--mono)' }}>AMD MI300X · ROCm 7.1</span>
+            <span style={{ background: 'rgba(237,28,36,0.12)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.25)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.7px', fontFamily: 'var(--mono)' }}>AMD MI300X · ROCm 7.1</span>
           </div>
         </div>
       </div>
@@ -278,7 +278,7 @@ function RegimePageInner() {
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--smoke)' }}>
           <span className="ld" /><span className="ll">HMM + LSTM + Attention</span>
-          <span style={{ background: 'rgba(237,28,36,0.12)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.3)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.8px' }}>AMD MI300X · ROCm 7.1</span>
+          <span style={{ background: 'rgba(237,28,36,0.12)', color: '#ED1C24', border: '1px solid rgba(237,28,36,0.28)', borderRadius: 4, padding: '2px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '.8px' }}>AMD MI300X · ROCm 7.1</span>
         </div>
       </header>
 

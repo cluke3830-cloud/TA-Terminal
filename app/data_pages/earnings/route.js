@@ -64,13 +64,19 @@ async function yahooEarnings(symbol) {
   const calendar = nextDate ? [{ date: isoDate(nextDate), symbol }] : [];
 
   const quarterly_income = (m.earnings?.financialsChart?.quarterly || [])
-    .map((q) => ({
-      date: q.date ? `${q.date.slice(-4)}-${q.date.slice(0, 2)}-01` : null,
-      period: q.date?.slice(0, 2) || 'Q',
-      revenue: num(q.revenue),
-      netIncome: num(q.earnings),
-    }))
-    .filter((q) => q.revenue != null);
+    .map((q) => {
+      const qNum = q.date ? parseInt(q.date[0], 10) : null;
+      const year = q.date ? q.date.slice(-4) : null;
+      const month = qNum ? String((qNum - 1) * 3 + 1).padStart(2, '0') : '01';
+      return {
+        date: (year && qNum) ? `${year}-${month}-01` : null,
+        period: (year && qNum) ? `Q${qNum}` : (q.date || 'Q'),
+        revenue: num(q.revenue),
+        netIncome: num(q.earnings),
+      };
+    })
+    .filter((q) => q.revenue != null)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
   if (hist.length === 0 && calendar.length === 0 && quarterly_income.length === 0) return null;
   return { calendar, history: hist, quarterly_income };

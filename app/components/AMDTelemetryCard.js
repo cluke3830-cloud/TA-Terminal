@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-function Bar({ pct, color = '#ED1C24' }) {
+function Bar({ pct, color = 'var(--amd-red)' }) {
   const v = parseFloat(pct) || 0;
   return (
     <div style={{ background: 'var(--onyx)', borderRadius: 4, height: 6, overflow: 'hidden', flex: 1 }}>
@@ -55,10 +55,11 @@ export default function AMDTelemetryCard() {
           <span className="card-title">MI300X Telemetry</span>
           <span style={{
             fontFamily: 'var(--mono)', fontSize: 9, padding: '2px 7px',
-            borderRadius: 4, fontWeight: 700, letterSpacing: '.5px',
-            background: online ? 'rgba(237,28,36,0.15)' : 'rgba(90,90,120,0.2)',
-            color: online ? '#ED1C24' : 'var(--smoke)',
-            border: `1px solid ${online ? 'rgba(237,28,36,0.3)' : 'var(--border)'}`,
+            borderRadius: 4, fontWeight: 700, letterSpacing: '.7px',
+            background: online ? 'rgba(237,28,36,0.12)' : 'rgba(90,90,120,0.2)',
+            color: online ? 'var(--amd-red)' : 'var(--smoke)',
+            border: `1px solid ${online ? 'rgba(237,28,36,0.28)' : 'var(--border)'}`,
+            transition: 'background .15s, color .15s, border-color .15s',
           }}>
             {online ? 'LIVE' : 'OFFLINE'}
           </span>
@@ -67,7 +68,7 @@ export default function AMDTelemetryCard() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#ED1C24', fontWeight: 700, letterSpacing: '.5px', marginBottom: 2 }}>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--amd-red)', fontWeight: 700, letterSpacing: '.5px', marginBottom: 2 }}>
           {data?.gpu || 'AMD Instinct MI300X'} · ROCm {data?.rocm_version || '7.1'}
         </div>
 
