@@ -1,281 +1,224 @@
-# ⚛ TA Terminal · Quantum Stock + Macro + Options + Portfolio
+# ⚛ Quantum Terminal
 
-A four-page financial intelligence platform built for retail traders who want institutional-grade analytics without a Bloomberg terminal.
+**A full-stack equity intelligence platform — built for the AMD Hackathon.**
 
-> Built for the **AMD Hackathon Championship Edition** — three real GPU workloads (Monte Carlo path simulation, FinBERT batched inference, SEC RAG retrieval) running on AMD MI300X.
+Eight pages of institutional-grade analytics for retail traders, with **four real GPU workloads** running on AMD Instinct MI300X: FinBERT batched sentiment, Monte Carlo exotic option pricing, a six-state HMM+LSTM market regime classifier, and SEC RAG retrieval. Plus a dedicated AI Analyst page powered by **Gemini 2.5 Flash with live Google Search grounding**.
 
-## Stack
-- **Frontend:** Next.js 14 + TradingView Lightweight Charts + Plotly.js (CDN)
-- **Equity / Smart Money APIs:** Alpaca (bars + options/IV) · FMP (financials, earnings, forecasts, insider Form 4, 13F holdings) · yahoo-finance2 (short interest, FINRA biweekly, 90d price)
-- **Macro APIs:** FRED (yields) · FMP (FX/commodities/calendar) · OpenSky (live flights) · World Bank · EIA · IMF COFER
-- **History / VIX:** yahoo-finance2 (multi-year daily closes, VIX/VIX3M/VIX6M)
-- **SEC fallback:** EDGAR direct (`data.sec.gov/submissions`) for insider Form 4 filings when FMP is unavailable
-- **GPU service:** FastAPI + PyTorch on ROCm — Monte Carlo, FinBERT (`ProsusAI/finbert`), RAG (ChromaDB + bge-small embeddings)
-- **Deploy:** Vercel (free tier, one-click)
+> **Live demo:** https://ta-terminal-orcin.vercel.app
+> **Built for:** AMD Developer Hackathon — Championship Edition
+
+---
+
+## 🚀 The Eight Pages
+
+| Page | What it does | AMD GPU work |
+|------|--------------|--------------|
+| **`/`** Terminal | Heikin Ashi chart, EMA overlays, AI summary, fundamentals, Smart Money cards (Insider Form 4, 13F, Short Interest) | — |
+| **`/macro`** Macro | Fear/Greed gauge, world risk heatmap, central bank monitor, yield curve, FX matrix, commodities, sector sentiment | FinBERT sector heatmap |
+| **`/regime`** Regime | Six-state market regime classifier with confidence + playbook | **HMM+LSTM ensemble on MI300X** |
+| **`/options`** Options | 3D IV surface, IV-RV gap, Greeks, vol smile, term structure, VIX, news sentiment, embedded MC | **FinBERT sentiment** |
+| **`/portfolio`** Portfolio | Markowitz frontier + walk-forward backtest + VaR decomposition | — |
+| **`/mc`** Monte Carlo | Exotic option pricer (Asian / Barrier / Lookback / American) | **MC path simulation on MI300X** |
+| **`/custom`** Custom | Drag-and-drop dashboard — pick any widget, set any ticker | Includes Regime + Sentiment widgets |
+| **`/ai`** AI Analyst | Full-page chat with **Gemini 2.5 Flash + Google Search**, ticker-aware, cited sources | — |
+
+---
+
+## ⚡ AMD MI300X Compute Integration
+
+Four real GPU workloads, all hot-routed through `gpu-service/main.py` (FastAPI on the MI300X droplet via ROCm 7.1):
+
+| Workload | Model / Method | Stack | Latency |
+|----------|----------------|-------|---------|
+| **FinBERT Sentiment** | ProsusAI/finbert | PyTorch + HuggingFace Transformers on ROCm | ~50–200ms per batch |
+| **Monte Carlo Pricing** | Asian / Barrier / Lookback / American | PyTorch tensor ops, 1M paths | Milliseconds |
+| **Regime Engine** | HMM + LSTM + Attention (6 states) | PyTorch on ROCm, trained per ticker | ~2 min cold / <100 ms cached |
+| **SEC RAG** | bge-small-en-v1.5 + ChromaDB | Cosine search over EDGAR filings | <100 ms |
+
+The Next.js app proxies every GPU request through `MC_GPU_URL` / `REGIME_API_URL` environment variables. Widgets and pages **degrade gracefully** when the droplet is offline — sentiment falls back to the Loughran-McDonald lexicon, MC falls back to browser-CPU, regime widgets show a clean offline state.
+
+---
+
+## 🤖 AI Analyst (`/ai`)
+
+Dedicated full-page chat interface powered by **Gemini 2.5 Flash + Google Search grounding**.
+
+- Ticker-aware via `?sym=NVDA` URL param — automatically scopes every question to the active ticker
+- Streams responses with inline citation superscripts `[1]` `[2]` linking to live sources
+- Up to 5 grounded web sources per response (server-side capped)
+- Markdown rendering: `## headers`, `**bold**`, bullet points
+- Six quick-start chips: Full analysis · Earnings setup · Quant snapshot · Bull vs bear · Valuation check · Risk factors
+- ⌘J or `7` keyboard shortcut to navigate from anywhere
+
+---
+
+## 🧠 Six-State Regime Classifier (`/regime`)
+
+Six-regime ensemble (Rules + HMM + LSTM, weights 0.45 / 0.35 / 0.20) built on 21 macro + volatility features. Trained per-ticker on MI300X.
+
+| Regime | Color | Meaning | Action |
+|--------|-------|---------|--------|
+| **Calm Trend** | 🟢 | Steady bull, low vol | Stay long, full equity |
+| **Volatile Trend** | 🟠 | Strong direction, bumpy path | Scale with trend direction |
+| **Low-Vol Range** | 🔵 | Quiet range-bound tape | Stay long but lighter |
+| **High-Vol Churn** | ⚪ | Whipsaw, no signal | De-risk, cut leverage |
+| **Correction** | 🟡 | Drawdown building | Light defensive short |
+| **Crisis** | 🔴 | Severe drawdown, vol spike | Net short / hedged |
+
+Hero panel shows ensemble confidence (entropy-mixed, capped ~91.7%), 1-bar / 5-bar forecast, rolling Sharpe, OOS calibration, and transition detector.
+
+Available as a **dashboard widget** under `/custom` — current state pill, 6-segment probability strip, mini timeline.
+
+---
+
+## 📦 Stack
+
+- **Frontend:** Next.js 14 (App Router) · TradingView Lightweight Charts · Plotly.js (CDN)
+- **AI:** Gemini 2.5 Flash via `@google/generative-ai` with `googleSearch` grounding
+- **GPU service:** FastAPI + PyTorch on ROCm 7.1 — Monte Carlo, FinBERT, Regime (HMM+LSTM), RAG (ChromaDB + bge-small)
+- **Equity APIs:** Alpaca · FMP · yahoo-finance2
+- **Macro APIs:** FRED · OpenSky · World Bank · EIA · IMF COFER
+- **SEC fallback:** EDGAR direct (`data.sec.gov/submissions`)
+- **Deploy:** Vercel (Next.js) + AMD Developer Cloud droplet (gpu-service) + Render free tier (regime-service CPU fallback)
 
 ---
 
 ## 🚀 Deploy in 2 Minutes
 
-### Step 1: Clone & push to your GitHub
+### Step 1 · Clone & push to your GitHub
 
 ```bash
-git clone https://github.com/cluke3830-cloud/Taeheon-Terminal.git
-cd Taeheon-Terminal
-git remote set-url origin https://github.com/YOUR_USERNAME/Taeheon-Terminal.git
+git clone https://github.com/cluke3830-cloud/TA-Terminal.git
+cd TA-Terminal
+git remote set-url origin https://github.com/YOUR_USERNAME/TA-Terminal.git
 git push -u origin main
 ```
 
-### Step 2: Deploy on Vercel
+### Step 2 · Deploy on Vercel
 
 1. Go to **[vercel.com/new](https://vercel.com/new)**
-2. Click **Import** next to your repo
-3. Add the **Environment Variables** below
+2. Import your repo
+3. Add the environment variables below
 4. Click **Deploy** ✅
 
 | Name | Used by | Free key at |
 |------|---------|-------------|
-| `ALPACA_API_KEY` | `/`, `/options` | https://alpaca.markets → Paper Trading → API Keys |
-| `ALPACA_SECRET_KEY` | `/`, `/options` | (same as above) |
+| `ALPACA_API_KEY` | `/`, `/options` | https://alpaca.markets → Paper Trading |
+| `ALPACA_SECRET_KEY` | `/`, `/options` | (same) |
 | `FMP_API_KEY` | all pages | https://financialmodelingprep.com → Dashboard |
-| `FRED_API_KEY` | `/macro` | https://fred.stlouisfed.org/docs/api/api_key.html |
+| `FRED_API_KEY` | `/macro`, `/regime` | https://fred.stlouisfed.org/docs/api/api_key.html |
 | `EIA_API_KEY` | `/macro` | https://www.eia.gov/opendata/register.php |
-| `MC_GPU_URL` | MC pricer · FinBERT sentiment (optional) | URL of your `gpu-service` host (e.g. `http://mi300x.example:8000`) |
-| `REGIME_API_URL` | `/regime` page (optional) | URL of your `regime-service` host on Render (e.g. `https://ta-terminal-regime.onrender.com`) |
+| `GEMINI_API_KEY` | `/ai` | https://aistudio.google.com/app/apikey (free: 15 RPM, 1500 RPD) |
+| `MC_GPU_URL` | MC pricer · FinBERT sentiment | URL of your `gpu-service` host |
+| `REGIME_API_URL` | `/regime`, regime widget | URL of your `gpu-service` or `regime-service` host |
 
-OpenSky Network, World Bank, and yahoo-finance2 need no key. The GPU widgets degrade gracefully — if `MC_GPU_URL` is unset, the MC pricer falls back to browser-CPU and FinBERT widgets show a clear "offline" badge.
-
-The Smart Money cards (Insider, 13F, Short Interest) and Portfolio Risk Decomposition work without a GPU key — they require only `FMP_API_KEY`. Short interest always works via Yahoo Finance with no key.
+OpenSky, World Bank, and yahoo-finance2 need no key. Every GPU/AI feature degrades gracefully when its env var is unset.
 
 ---
 
 ## 🖥️ Run Locally
 
-**1. Clone and enter the folder:**
 ```bash
-git clone https://github.com/cluke3830-cloud/Taeheon-Terminal.git
-cd Taeheon-Terminal
-```
-
-**2. Install dependencies (first time only):**
-```bash
+git clone https://github.com/cluke3830-cloud/TA-Terminal.git
+cd TA-Terminal
 npm install
-```
-
-**3. Create your `.env.local` file** at the project root:
-```
-ALPACA_API_KEY=your_alpaca_key
-ALPACA_SECRET_KEY=your_alpaca_secret
-FMP_API_KEY=your_fmp_key
-FRED_API_KEY=your_fred_key
-EIA_API_KEY=your_eia_key
-# Optional — only needed for MI300X-accelerated MC + FinBERT
-MC_GPU_URL=http://localhost:8000
-```
-
-**4. Start the dev server:**
-```bash
+cp .env.example .env.local   # then fill in your keys
 npm run dev
 ```
 
-Open **http://localhost:3000** — pages:
-- `/` → Equity Terminal (price chart, financials, earnings, Smart Money — Insider / 13F / Short Interest)
-- `/macro` → Macro Analysis (yields, FX, commodities, world map, sector sentiment heatmap)
-- `/options` → Options Workbench (IV surface, IV-RV gap, Greeks, vol smile, term structure, VIX, sentiment, Monte Carlo)
-- `/portfolio` → Portfolio Construction (Markowitz Efficient Frontier + Walk-Forward Backtest + Risk Decomposition)
+Open **http://localhost:3000**.
 
-If port 3000 is busy:
-```bash
-npm run dev -- -p 3737
-```
-
-> **⚠ macOS / zsh tip:** Do NOT copy commands with inline `#` comments — zsh treats `#` as a literal character by default. Copy one line at a time, or run `setopt interactivecomments` first.
+> **macOS / zsh tip:** Don't paste commands with inline `#` comments — zsh treats `#` as literal by default.
 
 ---
 
-## 📊 `/` — Equity Terminal
+## ⚡ Set Up the AMD MI300X GPU Service
 
-### Price & Chart
-- ⚡ Heikin Ashi candlestick chart with EMA 8/21/55 + volume bars
-- 🔄 Auto-refresh every 60s · Live symbol search
-
-### Fundamentals
-- 📊 Earnings history, next earnings date, quarterly revenue bars
-- 📈 9 financial ratios + Income / Balance / Cash Flow statements
-- 🎯 Analyst price targets and consensus ratings
-- 📰 News feed with **FinBERT sentiment** — positive/neutral/negative badges + 7d/30d rolling readouts
-
-### Smart Money Section
-Three institutional-analytics cards rendered below the fundamentals for the active symbol.
-
-#### Insider Form 4 Transactions
-- Real SEC Form 4 filings via FMP `/stable/insider-trading/search` with EDGAR direct fallback
-- Lookback window selector: **30 / 90 / 180 / 365 days**
-- Summary tiles: Net USD, Buy count, Sell count, Unique insiders
-- Buy/Sell pressure bar (proportional green/red)
-- **By Insider** tab — aggregated buys, sells, net shares, net USD per officer (zero-activity rows filtered out)
-- **Transactions** tab — per-trade table with date, insider name, title, type badge (BUY / SELL / OTHER), shares, price, SEC filing link
-
-#### 13F Institutional Flow
-- FMP quarterly aggregate: `stable/institutional-ownership/symbol-positions-summary`
-- Tiles: Institutional Ownership % with period-point delta, Holder count with QoQ delta, Capital Invested, Flow Score
-- **Flow Score** = (adds − cuts) ÷ (adds + cuts) → −100 (all cutting) to +100 (all adding), labeled BULLISH / NEUTRAL / BEARISH
-- Position flow pills: ▲ New · ↑ Added · ↓ Reduced · ▼ Closed + Put/Call Ratio
-- Adds/cuts ratio bar
-- Quarterly history table with holder counts, **Δ Shares %** (pure position-count change — not mark-to-market), capital invested, institutional ownership %
-- Incomplete-quarter detection: partial quarters dropped automatically (filing window = 45 days post-quarter-end)
-
-#### FINRA Short Interest
-- Yahoo Finance snapshot: **% of Float**, **Days to Cover**, Shares Short, Squeeze Score
-- Color-coded severity: cyan (<5% float) → yellow (5–10%) → red (>10%)
-- **STALE badge** (orange) when the FINRA settlement date is more than 14 days old
-- MoM trend strip: share delta vs prior settlement + % change
-- **90-day price overlay** — SVG line chart color-keyed to SI severity level, with min/mid/max price ticks and 4 date markers
-- Biweekly history sparkline + table (when FMP data available)
-- **Squeeze Score (0–100):** heuristic — 40pts %float, 40pts DTC, 20pts MoM trend. Labeled LOW / MODERATE / HIGH / EXTREME. Clearly noted as a heuristic, not a signal
-
----
-
-## 🌍 `/macro` — Global Macro Intelligence
-- 🎯 **Fear & Greed Composite Gauge** — 6 weighted signals (yield curve, real rate, DXY momentum, commodity momentum, yield volatility, central bank stance)
-- 🗺️ **World Map** — Geopolitical Risk heatmap · Oil Reserves · live Flight Tracker (OpenSky, refresh every 60s)
-- 🏦 **Central Bank Monitor** — Fed/ECB/BOJ/BOE/PBOC/RBA/SNB/BOC rates with next-meeting dates
-- 📅 **Economic Calendar & Surprise Index** — beat/miss pills + Citi-style USD aggregate
-- 📉 **US Treasury Yield Curve** — 1M to 30Y from FRED with 1Y/2Y/5Y historical overlays + inversion detection
-- 💱 **8×8 FX Strength Matrix** — USD/EUR/JPY/GBP/CNY/AUD/CAD/CHF + ICE-formula DXY
-- 🛢️ **Commodity & Energy Pulse** — WTI, Brent, Nat Gas, Copper, Gold, Silver, Uranium proxy, US electricity (with 30-day sparklines)
-- 🌐 **Global Flows / Multipolar Map** — World Bank reserve holdings choropleth + IMF COFER reserve currency composition
-- 🧠 **Sector Sentiment Heatmap (FinBERT)** — 11 GICS sectors color-coded by mean sentiment over recent bellwether headlines
-
----
-
-## 🧠 `/regime` — Market Regime Classifier
-
-6-regime ensemble classifier (Rules + HMM + LSTM, weights 0.45 / 0.35 / 0.20) built on 21 macro + volatility features. Runs a 2-3 min pipeline on first load; results cached 1 hour. On Render free tier, LSTM is disabled (HMM-only mode) — all 6 regimes still work.
-
-| Regime | Color | What it means | Recommended action |
-|--------|-------|---------------|-------------------|
-| **Calm Trend** | 🟢 green | Steady bull advance. Low vol, intact uptrend. Classic healthy bull market. | Stay long — full equity exposure. |
-| **Volatile Trend** | 🟠 orange | Strong directional move but path is bumpy. Vol elevated, trend has conviction. | Scale with the trend direction — full long (uptrend), reduced (downtrend), never short. |
-| **Low-Vol Range** | 🔵 blue | Quiet range-bound tape. Vol unusually compressed, slow grind, no direction. | Stay long but lighter — patience, not size. |
-| **High-Vol Churn** | ⚪ gray | Elevated vol + price going nowhere. Whipsaws everywhere, signal-to-noise is poor. | De-risk hard. Cut leverage — this regime burns alpha. |
-| **Correction** | 🟡 amber | Moderate drawdown building, momentum negative, vol rising. Pre-crisis. | Light defensive short. Reduce gross exposure, protect capital. |
-| **Crisis** | 🔴 red | Severe drawdown, VIX spike, credit/safe-haven flight (2008, 2020). | Net short / hedged — capital preservation playbook. |
-
-**Hero panel fields:**
-- **Confidence** — ensemble probability of the current regime (capped ~91.7% by entropy mixing, honest about uncertainty)
-- **Next-Bar / 5-Bar Forecast** — short-term regime prediction + probability
-- **Ensemble Sharpe** — rolling Sharpe of the signal-weighted strategy over the lookback window
-- **Calibration (OOS)** — isotonic out-of-sample calibration score (`n/a` in HMM-only mode)
-- **Transition Detector** — detects imminent regime changes via entropy spike (`n/a` in HMM-only mode)
-
-Hosted on Render free tier (`regime-service/`). Set `REGIME_API_URL` in Vercel env vars to your Render service URL. Keep alive with a free [cron-job.org](https://cron-job.org) ping to `/health` every 14 minutes.
-
----
-
-## 📐 `/options` — Options Workbench
-
-Everything options-related in one scrollable page, ticker-driven via `?sym=`:
-
-- 🌊 **3D Implied Volatility Surface** — Black-Scholes solver over the live Alpaca chain
-- ⚡ **3D IV − RV Gap Surface** — options "expensive" (teal) vs "cheap" (red) vs realized vol
-- 🔢 **Greeks Table** — Δ Γ ν Θ ρ by strike × expiry, ATM row highlighted, calls/puts toggle, expiry filter
-- 😊 **Vol Smile / Skew (2D slice)** — IV vs moneyness at a selected expiry, with **Risk Reversal (25Δ)** and **Butterfly (25Δ)** readouts
-- 📈 **ATM IV Term Structure** — IV across maturities with **contango / backwardation** flag
-- 🎢 **VIX Term Structure** — VIX / VIX3M / VIX6M with `VIX/VIX3M` ratio signal + 90-day history overlay
-- 🧠 **News Sentiment (FinBERT)** — daily rolling sentiment chart for the active ticker + scored headline list
-- 🎲 **Monte Carlo Option Pricer (embedded)** — BSM path simulation on AMD MI300X, browser-CPU fallback
-
----
-
-## 💼 `/portfolio` — Portfolio Construction
-
-Three stacked sections for full portfolio lifecycle: allocation → execution → risk.
-
-### Section 1 · Efficient Frontier
-- Inputs: tickers (comma-separated), start/end year, objective (max Sharpe / min vol / target return), per-asset min/max weight bounds
-- Solver: hand-rolled Markowitz QP (projected gradient + simplex projection), full parabolic frontier traced by sweeping the Lagrangian dual `q`
-- Plot: **Efficient Frontier** parabola · **Best CAL** (tangent from risk-free rate) · **Tangency Portfolio** (red dot) · **Individual Assets** (orange diamonds) · **risk-free rate** marker
-- Live feasibility check: `Σ min ≤ 1` and `Σ max ≥ 1` — Solve auto-disables when bounds are infeasible
-
-### Section 2 · Walk-Forward Backtest
-- Inputs: tickers + weights, start/end year, transaction cost (bps), rebalance cadence (monthly/quarterly/yearly), T+1 execution toggle
-- Daily NAV simulation with turnover-weighted cost drag
-- Outputs: equity curve + drawdown overlay, Total Return / Max DD / Sharpe / Annual Vol / Final NAV / # rebalances
-
-### Section 3 · Risk Decomposition
-Full portfolio risk report with VaR decomposition.
-
-**Inputs:** same tickers/weights as Backtest, plus benchmark ticker, confidence level (90/95/99%), date range, rebalance cadence, and cost bps.
-
-**Headline metrics — 8 tiles with hover tooltips explaining each formula:**
-
-| Metric | Formula |
-|--------|---------|
-| Hist VaR | −quantile(1−conf) of realized daily returns |
-| Hist CVaR (ES) | Mean of the worst (1−conf)% tail days |
-| Param VaR | Gaussian: −(μ − z·σ) |
-| Param CVaR | Gaussian ES: −(μ − σ·φ(z)/(1−conf)) |
-| Max Drawdown | Largest peak-to-trough NAV decline |
-| Beta | Cov(portfolio, benchmark) / Var(benchmark) |
-| Annual Vol | Daily std × √252 |
-| Sharpe | Mean daily return / daily std × √252 (rf = 0) |
-
-> **Sharpe and Max DD match the Backtest section exactly.** Both sections derive from the same realized NAV series (same rebalance schedule + cost drag). VaR/CVaR decomposition uses the theoretical constant-weight covariance matrix.
-
-**Per-asset decomposition table:**
-
-| Column | Explanation |
-|--------|-------------|
-| Ann. Return | Mean daily return × 252 |
-| Ann. Vol | Daily std × √252 |
-| Beta | Asset beta vs selected benchmark |
-| Marginal VaR | Incremental VaR per unit of weight: `z·(Σw)ᵢ/σₚ − μᵢ` |
-| Component VaR | `wᵢ × Marginal VaR` — all components sum exactly to Param VaR |
-| % of VaR | Asset's fractional contribution to total portfolio risk |
-
-**Three Plotly charts:**
-1. **Return Distribution** — histogram colored by loss region, Hist VaR and Param VaR cutoff lines at separate vertical positions
-2. **Drawdown Curve** — full-resolution daily series (no stride sampling), red fill under zero
-3. **Risk Contribution Bar** — % of parametric VaR per asset, y-axis auto-padded so outside labels never clip
-
----
-
-## 🎲 `/mc` — Monte Carlo Option Pricer
-
-Simulate thousands of price paths to estimate a fair option price. Run in-browser (CPU) or on AMD MI300X GPU.
-
-**Option types:** European · American · Asian (average price) · Barrier (knock-out) · Lookback
-
-**How to use:**
-1. Type a ticker — spot auto-fills, strike snaps to ATM
-2. Choose option type, DTE, vol, risk-free rate, optional barrier, path count (1K → 10M)
-3. Click **Run** on CPU or GPU
-4. Compare engines — a `⚡ MI300X is N× faster` banner appears
-
-Deep-link: `/mc?sym=AAPL&type=asian&K=180&T=30D&paths=1000000`  
-Embed mode: `/mc?embed=1` (used by the Options Workbench)
-
----
-
-## 🤖 AMD MI300X Integration · `gpu-service/`
-
-| Endpoint | Workload | Library |
-|----------|----------|---------|
-| `POST /mc/run` | Monte Carlo option pricing | PyTorch on ROCm |
-| `POST /finbert/score` | FinBERT batched headline sentiment | `ProsusAI/finbert` via `transformers` |
-| `POST /rag/search` | Top-k cosine search over SEC EDGAR filings | ChromaDB + `bge-small-en-v1.5` |
-| `GET /health` | Device + model + chunk-count snapshot | — |
+The same FastAPI process exposes all four GPU endpoints — Monte Carlo, FinBERT, Regime, and RAG.
 
 ```bash
-cd gpu-service
+# On your MI300X droplet (AMD Developer Cloud)
+git clone https://github.com/cluke3830-cloud/TA-Terminal.git
+cd TA-Terminal/gpu-service
+
+# Install ROCm-flavored PyTorch
 pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
 pip install -r requirements.txt
-python ingest_edgar.py   # optional: pre-load SEC filings into ChromaDB
+
+# Optional: pre-load SEC filings into ChromaDB for RAG
+python ingest_edgar.py
+
+# Start the service
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Then set `MC_GPU_URL=http://<mi300x-host>:8000` in your environment.
+Then point your Vercel env vars at it:
+```
+MC_GPU_URL=http://<droplet-ip>:8000
+REGIME_API_URL=http://<droplet-ip>:8000
+```
+
+| Endpoint | Workload |
+|----------|----------|
+| `POST /mc/run` | Monte Carlo option pricing |
+| `POST /finbert/score` | FinBERT batched headline sentiment |
+| `POST /regime/run` | Six-state regime classification |
+| `POST /rag/search` | Top-k cosine search over SEC EDGAR filings |
+| `GET /health` | Device + model + chunk-count snapshot |
+
+---
+
+## 📊 Page-by-Page Features
+
+### `/` Terminal
+- Heikin Ashi candlestick + EMA 8/21/55 + volume bars (auto-refresh 60s)
+- Fundamentals: 9 ratios, Income / Balance / Cash Flow, earnings history, analyst targets
+- News feed with FinBERT sentiment badges + 7d/30d rolling readouts
+- **Smart Money:** Insider Form 4 (FMP + EDGAR fallback) · 13F flow score · FINRA short interest with 90-day price overlay
+
+### `/macro` Macro Intelligence
+- Fear & Greed composite gauge (6 weighted signals)
+- World map: geopolitical risk heatmap, oil reserves, OpenSky live flights
+- Central Bank Monitor (Fed/ECB/BOJ/BOE/PBOC/RBA/SNB/BOC) + next-meeting dates
+- US Treasury yield curve with inversion detection
+- 8×8 FX strength matrix + ICE-formula DXY
+- Commodity & Energy Pulse with 30-day sparklines
+- Global Flows: World Bank reserves choropleth + IMF COFER
+- **Sector Sentiment Heatmap (FinBERT)** — 11 GICS sectors color-coded by mean sentiment
+
+### `/options` Options Workbench
+- 3D Implied Volatility Surface (Black-Scholes solver over Alpaca chain)
+- 3D IV − RV Gap Surface (expensive vs cheap zones)
+- Greeks Table (Δ Γ ν Θ ρ by strike × expiry)
+- Vol Smile / Skew with **25Δ Risk Reversal** + **25Δ Butterfly** readouts
+- ATM IV term structure with contango/backwardation flag
+- VIX term structure (VIX / VIX3M / VIX6M)
+- **News Sentiment (FinBERT)** rolling chart
+- Embedded Monte Carlo pricer
+
+### `/portfolio` Portfolio Construction
+1. **Efficient Frontier** — hand-rolled Markowitz QP, full parabolic frontier, tangency portfolio, Best CAL
+2. **Walk-Forward Backtest** — daily NAV simulation, T+1 fills, turnover-weighted cost drag
+3. **Risk Decomposition** — Hist/Param VaR + CVaR, Max DD, Beta, per-asset Marginal/Component VaR (sums exactly to Param VaR)
+
+### `/mc` Monte Carlo
+- Exotic option types: European · American · Asian · Barrier · Lookback
+- Path counts: 1K → 10M
+- CPU vs GPU comparison with `⚡ MI300X is N× faster` banner
+- Deep-link: `/mc?sym=AAPL&type=asian&K=180&T=30D&paths=1000000`
+
+### `/custom` Custom Dashboard
+- Drag-and-drop grid layout
+- Add any widget by name via command palette
+- Per-widget ticker scoping
+- Includes: **Regime Intelligence** (6-state classifier) and **News Sentiment** (FinBERT) widgets
+
+### `/ai` AI Analyst
+- Full-page chat with Gemini 2.5 Flash + Google Search grounding
+- Six quick-start chips for common retail-investor questions
+- Cited responses with source links (max 5)
+- Markdown rendering for headers, bold, bullets
+- ⌘J shortcut from any page
 
 ---
 
@@ -283,76 +226,62 @@ Then set `MC_GPU_URL=http://<mi300x-host>:8000` in your environment.
 
 ```
 app/
-├── page.js                         # Equity terminal — chart, fundamentals, Smart Money
+├── page.js                      # Terminal — chart, fundamentals, Smart Money
+├── ai/page.js                   # AI Analyst (Gemini + Google Search)
+├── custom/page.js               # Drag-and-drop widget dashboard
+├── macro/page.js                # 8-section macro analysis
+├── regime/page.js               # 6-state regime classifier
+├── options/page.js              # IV surface, vol smile, sentiment
+├── portfolio/page.js            # Frontier + Backtest + Risk
+├── mc/page.js                   # Monte Carlo pricer
 ├── components/
-│   ├── ChartWithIndicators.js      # TradingView-style candlestick + indicator system
-│   ├── InsiderCard.js              # SEC Form 4 insider transactions
-│   ├── HoldingsCard.js             # 13F institutional flow
-│   └── ShortInterestCard.js        # FINRA short interest + 90d price overlay
-├── macro/
-│   ├── page.js                     # Macro analysis (8 sections)
-│   └── components/
-│       └── SentimentHeatmap.js     # FinBERT sector grid
-├── options/
-│   ├── page.js
-│   └── components/
-│       ├── IVSurface.js · IVRVGap.js · Greeks.js
-│       ├── VolSmile.js · TermStructure.js · VixTerm.js
-│       ├── SentimentRolling.js · McEmbed.js
-├── portfolio/
-│   ├── page.js                     # Frontier + Backtest + Risk Decomposition
-│   └── lib/
-│       ├── markowitz.js            # Markowitz QP solver (no native deps)
-│       ├── backtest.js             # Walk-forward NAV simulator
-│       └── risk.js                 # VaR/CVaR/MaxDD/Beta/Marginal+Component VaR
-├── mc/
-│   ├── page.js                     # Standalone MC pricer
-│   └── lib/cpu.js                  # JS reference engine
-└── data_pages/                     # Next.js server-side route handlers
-    ├── stock/                      # Alpaca bars
-    ├── options/ · greeks/          # IV surface, Black-Scholes Greeks
+│   ├── Nav.js · CommandPalette.js · ChartWithIndicators.js
+│   ├── InsiderCard.js · HoldingsCard.js · ShortInterestCard.js
+│   └── custom/widgets/
+│       ├── NewsSentimentWidget.js     # FinBERT spark + headlines
+│       └── RegimeWidget.js            # 6-state classifier card
+└── data_pages/                  # Server-side route handlers
+    ├── ai_chat/route.js               # Gemini 2.5 Flash streaming + grounding
+    ├── stock/ · options/ · greeks/    # Alpaca + Black-Scholes
     ├── earnings/ · financials/ · forecast/ · search/
-    ├── history/                    # yahoo-finance2 aligned daily closes
-    ├── news/                       # Yahoo + FMP merged + FinBERT-scored
-    ├── insider/route.js            # Form 4 via FMP stable + EDGAR fallback
-    ├── holdings/route.js           # 13F quarterly aggregate via FMP stable
-    ├── short-interest/route.js     # FINRA SI via Yahoo + FMP biweekly + 90d price
-    ├── sentiment/ · mc/gpu/        # MI300X proxies
-    ├── portfolio/
-    │   ├── frontier/route.js       # Markowitz solve
-    │   ├── backtest/route.js       # Walk-forward simulation
-    │   └── risk/route.js           # VaR decomp (reuses backtest NAV for headline stats)
-    └── macro/
-        ├── yields/ · centralbanks/ · calendar/
-        ├── commodities/ · fx/ · flows/ · flights/
-        ├── geopolitical/ · feargreed/
-        └── vix/route.js
+    ├── news/                          # Yahoo + FMP merged + FinBERT-scored
+    ├── insider/ · holdings/ · short-interest/
+    ├── sentiment/gpu · mc/gpu          # MI300X proxies
+    ├── regime/run                      # MI300X regime proxy
+    ├── portfolio/{frontier,backtest,risk}
+    └── macro/{yields,centralbanks,calendar,commodities,fx,flows,flights,geopolitical,feargreed,vix}
 
-gpu-service/
-├── main.py · mc.py · finbert.py · rag.py · regime.py
-├── ingest_edgar.py
+gpu-service/                     # AMD MI300X FastAPI host
+├── main.py                      # /mc/run · /finbert/score · /regime/run · /rag/search · /health
+├── mc.py · finbert.py · regime.py · rag.py
 └── requirements.txt
 
-regime-service/              # CPU-only FastAPI for Render deployment
-├── main.py                  # regime endpoint + health (no GPU deps)
-├── regime.py                # thin JSON wrapper around regime_dashboard.py
-└── requirements.txt
-regime_dashboard.py          # 4000-line HMM+LSTM+Attention ensemble engine (repo root)
-render.yaml                  # Render auto-deploy config for regime-service
+regime-service/                  # CPU-only Render fallback
+├── main.py · regime.py · requirements.txt
+└── render.yaml                  # Render auto-deploy
+
+regime_dashboard.py              # 4000-line HMM+LSTM+Attention engine (root)
 ```
 
 ---
 
-## ⚠️ Important Notes
+## ⚠️ Notes
 
-- **Rotate API keys** if you ever pushed them publicly
-- Alpaca free tier: ~15 min delayed data (IEX feed)
-- FMP free tier: 250 calls/day · server-side cache (5–60 min TTL) reduces daily usage significantly
-- FRED: 120 req/min · cold yield fetch makes ~44 calls
-- OpenSky: ~10 req/min unauthenticated (cache TTL 60s)
-- FINRA short interest: biweekly settlements — data can lag up to 30 days; STALE badge appears after 14 days
-- 13F filings: 45-day filing window post-quarter-end — most recent quarter may be under-reported and is auto-dropped if holder count < 60% of prior quarter
-- FinBERT first-call cold start: ~30s (HuggingFace download); subsequent calls batch on GPU
-- Backtest: T+1 close fills + turnover-weighted cost drag; survivorship bias unhandled (delisted tickers error)
-- Risk Decomposition: constant-weight covariance for marginal/component VaR; Sharpe + Max DD derive from the same realistic NAV series as the Backtest section
+- **Rotate API keys** if pushed publicly
+- Alpaca free tier: ~15 min delayed (IEX feed)
+- FMP free tier: 250 calls/day · server cache (5–60 min TTL) reduces usage
+- FRED: 120 req/min · cold yield fetch ~44 calls
+- Gemini free tier: 15 RPM, 1500 RPD on `gemini-2.5-flash`
+- FinBERT first-call cold start: ~30 s (HuggingFace download); subsequent calls batch on GPU
+- Regime first-call cold start: 2–3 min (HMM+LSTM training); subsequent calls cached <100 ms
+- 13F filings: 45-day window post-quarter-end · auto-drops partial quarters when holder count <60% of prior
+- FINRA short interest: biweekly · STALE badge after 14 days
+- Backtest: T+1 close fills + turnover-weighted cost drag · survivorship bias unhandled
+- Risk Decomposition: constant-weight covariance for Marginal/Component VaR · Sharpe + Max DD share NAV with Backtest
 - **Research tool — not investment advice**
+
+---
+
+## 🏆 Built for AMD Hackathon Championship Edition · 2026
+
+Quantum Terminal demonstrates real GPU compute integration on AMD Instinct MI300X — not a wrapper, not a proxy. FinBERT inference, exotic option Monte Carlo, and a six-state HMM+LSTM regime engine all run natively on ROCm. The result is a $24K-tier Bloomberg-class platform, free to use, with the AI muscle of Gemini 2.5 Flash and the GPU horsepower of MI300X behind every intelligent feature.
