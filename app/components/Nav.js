@@ -76,7 +76,7 @@ export default function Nav() {
 
   return (
     <nav className="app-nav">
-      <span className="app-nav-brand">QUANTUM<span className="brand-dot" /></span>
+      <span className="app-nav-brand">TA TERMINAL<span className="brand-dot" /></span>
       <Link href="/" className={isActive('/')}>Terminal</Link>
       <Link href="/macro" className={isActive('/macro')}>Macro</Link>
       <Link href="/regime" className={isActive('/regime')}>Regime</Link>

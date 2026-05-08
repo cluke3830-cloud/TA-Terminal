@@ -6,7 +6,7 @@ import ToastHost from './components/ToastHost';
 import ShortcutHelp from './components/ShortcutHelp';
 
 export const metadata = {
-  title: 'Quantum Terminal · Equity + Macro',
+  title: 'TA Terminal · Equity + Macro',
   description: 'Live Heikin Ashi · IV Surfaces · Earnings · Macro Intelligence',
 };
 

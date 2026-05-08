@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const SYSTEM = `You are Quantum Terminal's AI Analyst. The active ticker is provided with each message.
+const SYSTEM = `You are TA Terminal's AI Analyst. The active ticker is provided with each message.
 
 Answer the user's exact question directly and thoroughly. Use Google Search grounding to fetch current data — price, news, earnings, analyst ratings, fundamentals — and cite sources inline as [1], [2] when used.
 
