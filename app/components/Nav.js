@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-const TAB_ROUTES = ['/', '/macro', '/regime', '/options', '/portfolio', '/custom'];
+const TAB_ROUTES = ['/', '/macro', '/regime', '/options', '/portfolio', '/custom', '/ai'];
 
 // Global ticker search. Lives in the top nav so every page (Terminal, Macro,
 // MC Pricer) has it. Selecting a result routes to /?sym=<TICKER>; pressing
@@ -53,7 +53,7 @@ export default function Nav() {
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
         e.preventDefault();
-        window.dispatchEvent(new Event('open-ai-drawer'));
+        router.push('/ai');
         return;
       }
 
@@ -69,8 +69,6 @@ export default function Nav() {
     return () => window.removeEventListener('keydown', onKey);
   }, [router]);
 
-  const openAi = () => window.dispatchEvent(new Event('open-ai-drawer'));
-
   const pick = (symbol) => {
     setQ(''); setResults([]); setOpen(false);
     router.push(`/?sym=${encodeURIComponent(symbol.toUpperCase())}`);
@@ -85,9 +83,9 @@ export default function Nav() {
       <Link href="/options" className={isActive('/options')}>Options</Link>
       <Link href="/portfolio" className={isActive('/portfolio')}>Portfolio</Link>
       <Link href="/custom" className={isActive('/custom')}>Custom</Link>
-      <button className="nav-link nav-ai-btn" onClick={openAi} title="AI Analyst (⌘J)">
+      <Link href="/ai" className={isActive('/ai')} style={{ display: 'flex', alignItems: 'center', gap: 4 }} title="AI Analyst (⌘J)">
         <span className="nav-ai-mark">✦</span> AI
-      </button>
+      </Link>
 
       <div className="nav-search" ref={wrapRef}>
         <span className="nav-search-icon">⌕</span>
