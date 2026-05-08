@@ -20,22 +20,32 @@ async function fmpForecast(symbol, key) {
       return j;
     } catch { return null; }
   };
-  const [targetSummary, grades, news] = await Promise.all([
+  const [targetSummary, grades, news, priceTargets] = await Promise.all([
     get(`price-target-summary?symbol=${symbol}`),
     get(`grades-consensus?symbol=${symbol}`),
     get(`stock-news?tickers=${symbol}&limit=5`),
+    get(`price-target?symbol=${symbol}&limit=50`),
   ]);
   const first = (d) => (Array.isArray(d) ? d[0] || null : d || null);
   const summary = first(targetSummary);
   const gradesData = first(grades);
   if (!summary && !gradesData && !(Array.isArray(news) && news.length)) return null;
 
+  // Compute monthly/quarterly averages from individual targets when summary fields are null
+  const avgFromTargets = (daysBack) => {
+    if (!Array.isArray(priceTargets) || !priceTargets.length) return null;
+    const cutoff = Date.now() - daysBack * 86400000;
+    const recent = priceTargets.filter((t) => t.priceTarget && new Date(t.publishedDate).getTime() > cutoff);
+    if (!recent.length) return null;
+    return recent.reduce((s, t) => s + t.priceTarget, 0) / recent.length;
+  };
+
   const targets = summary ? {
-    targetHigh: summary.lastMonthAvgPriceTarget || null,
+    targetHigh: summary.lastMonthAvgPriceTarget || avgFromTargets(30) || null,
     targetLow: summary.allTimeAvgPriceTarget || null,
-    targetMedian: summary.lastQuarterAvgPriceTarget || null,
-    targetMean: summary.lastYearAvgPriceTarget || null,
-    numberOfAnalysts: summary.lastYearCount || null,
+    targetMedian: summary.lastQuarterAvgPriceTarget || avgFromTargets(90) || null,
+    targetMean: summary.lastYearAvgPriceTarget || avgFromTargets(365) || null,
+    numberOfAnalysts: summary.lastYearCount || (Array.isArray(priceTargets) ? priceTargets.length : null),
   } : null;
 
   const upgrades = gradesData ? {
