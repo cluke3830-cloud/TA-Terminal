@@ -527,7 +527,7 @@ function MacroDashboardInner() {
     <>
       <header className="topbar">
         <div className="topbar-l">
-          <span className="brand">Quantum Macro<span className="brand-dot" /></span>
+          <span className="brand">TA MACRO<span className="brand-dot" /></span>
           <span className="topbar-date">{fmtDate()} · {clock}</span>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--smoke)' }}>
@@ -865,7 +865,7 @@ function MacroDashboardInner() {
 
         <div className="footer">
           DATA · FRED (Federal Reserve) · FMP · OpenSky Network · World Bank · EIA · IMF COFER · BP Statistical Review<br />
-          Quantum Macro Terminal · AMD Hackathon Championship Edition · Built for retail traders
+          TA Terminal · AMD Hackathon Championship Edition · Built for retail traders
         </div>
       </main>
     </>

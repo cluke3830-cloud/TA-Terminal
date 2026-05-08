@@ -155,7 +155,7 @@ function DashboardInner() {
     <>
       <header className="topbar">
         <div className="topbar-l">
-          <span className="brand">QUANTUM TERMINAL<span className="brand-dot" /></span>
+          <span className="brand">TA TERMINAL<span className="brand-dot" /></span>
           <span className="topbar-date">{fmtDate()} · {clock}</span>
         </div>
       </header>
@@ -341,7 +341,7 @@ function DashboardInner() {
       </main>
 
       <footer className="footer">
-        QUANTUM STOCK TERMINAL · Built by Taeheon ·{' '}
+        TA TERMINAL · Built by Taeheon ·{' '}
         <a href="https://alpaca.markets">Alpaca</a> ·{' '}
         <a href="https://financialmodelingprep.com">FMP</a>
         <br />Open source · Not financial advice · Free-tier data may be delayed
