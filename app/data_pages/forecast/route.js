@@ -31,20 +31,26 @@ async function fmpForecast(symbol, key) {
   const gradesData = first(grades);
   if (!summary && !gradesData && !(Array.isArray(news) && news.length)) return null;
 
-  // Compute monthly/quarterly averages from individual targets when summary fields are null
-  const avgFromTargets = (daysBack) => {
+  // Compute averages from individual targets when summary fields are null
+  const avgFromTargets = (daysBack, maxN) => {
     if (!Array.isArray(priceTargets) || !priceTargets.length) return null;
-    const cutoff = Date.now() - daysBack * 86400000;
-    const recent = priceTargets.filter((t) => t.priceTarget && new Date(t.publishedDate).getTime() > cutoff);
-    if (!recent.length) return null;
-    return recent.reduce((s, t) => s + t.priceTarget, 0) / recent.length;
+    const valid = priceTargets.filter((t) => t.priceTarget > 0);
+    if (!valid.length) return null;
+    if (daysBack) {
+      const cutoff = Date.now() - daysBack * 86400000;
+      const recent = valid.filter((t) => new Date(t.publishedDate).getTime() > cutoff);
+      if (recent.length) return recent.reduce((s, t) => s + t.priceTarget, 0) / recent.length;
+    }
+    // Fallback: average the N most recent targets
+    const slice = valid.slice(0, maxN || 10);
+    return slice.reduce((s, t) => s + t.priceTarget, 0) / slice.length;
   };
 
   const targets = summary ? {
-    targetHigh: summary.lastMonthAvgPriceTarget || avgFromTargets(30) || null,
+    targetHigh: summary.lastMonthAvgPriceTarget || avgFromTargets(30, 10) || null,
     targetLow: summary.allTimeAvgPriceTarget || null,
-    targetMedian: summary.lastQuarterAvgPriceTarget || avgFromTargets(90) || null,
-    targetMean: summary.lastYearAvgPriceTarget || avgFromTargets(365) || null,
+    targetMedian: summary.lastQuarterAvgPriceTarget || avgFromTargets(90, 20) || null,
+    targetMean: summary.lastYearAvgPriceTarget || avgFromTargets(365, 50) || null,
     numberOfAnalysts: summary.lastYearCount || (Array.isArray(priceTargets) ? priceTargets.length : null),
   } : null;
 
