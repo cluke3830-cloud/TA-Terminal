@@ -47,11 +47,17 @@ async function fmpForecast(symbol, key) {
     return slice.reduce((s, t) => s + t.priceTarget, 0) / slice.length;
   };
 
+  // Cascade fallbacks: month → quarter → year → all-time, so every cell always shows something useful
+  const month = summary?.lastMonthAvgPriceTarget || avgFromTargets(30, 10) || null;
+  const quarter = summary?.lastQuarterAvgPriceTarget || avgFromTargets(90, 20) || null;
+  const year = summary?.lastYearAvgPriceTarget || avgFromTargets(365, 50) || null;
+  const allTime = summary?.allTimeAvgPriceTarget || null;
+
   const targets = summary ? {
-    targetHigh: summary.lastMonthAvgPriceTarget || avgFromTargets(30, 10) || null,
-    targetLow: summary.allTimeAvgPriceTarget || null,
-    targetMedian: summary.lastQuarterAvgPriceTarget || avgFromTargets(90, 20) || null,
-    targetMean: summary.lastYearAvgPriceTarget || avgFromTargets(365, 50) || null,
+    targetHigh: month || quarter || year || allTime,
+    targetLow: allTime,
+    targetMedian: quarter || year || allTime,
+    targetMean: year || allTime,
     numberOfAnalysts: summary.lastYearCount || (Array.isArray(priceTargets) ? priceTargets.length : null),
   } : null;
 
