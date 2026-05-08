@@ -6,14 +6,15 @@ import YahooFinance from 'yahoo-finance2';
 const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const FMP = 'https://financialmodelingprep.com/stable';
+const FMP_V3 = 'https://financialmodelingprep.com/api/v3';
 
 function num(v) { return v?.raw ?? (typeof v === 'number' ? v : null); }
 
 async function fmpForecast(symbol, key) {
   if (!key) return null;
-  const get = async (path) => {
+  const get = async (path, base = FMP) => {
     try {
-      const r = await fetch(`${FMP}/${path}${path.includes('?') ? '&' : '?'}apikey=${key}`);
+      const r = await fetch(`${base}/${path}${path.includes('?') ? '&' : '?'}apikey=${key}`);
       if (!r.ok) return null;
       const j = await r.json();
       if (j?.['Error Message']) return null;
@@ -24,7 +25,7 @@ async function fmpForecast(symbol, key) {
     get(`price-target-summary?symbol=${symbol}`),
     get(`grades-consensus?symbol=${symbol}`),
     get(`stock-news?tickers=${symbol}&limit=5`),
-    get(`price-target?symbol=${symbol}&limit=50`),
+    get(`price-target?symbol=${symbol}&limit=50`, FMP_V3),
   ]);
   const first = (d) => (Array.isArray(d) ? d[0] || null : d || null);
   const summary = first(targetSummary);
@@ -126,6 +127,6 @@ export async function GET(req) {
     return Response.json(empty);
   }
   result.source = source;
-  setCache(cacheKey, result, 60 * 60 * 1000);
+  setCache(cacheKey, result, 10 * 60 * 1000);
   return Response.json(result);
 }
