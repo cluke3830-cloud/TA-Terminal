@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 
 function fmtDate(iso) {
   if (!iso) return '';
@@ -12,28 +12,17 @@ function fmtDate(iso) {
   return `${Math.round(diffH / 24)}d ago`;
 }
 
-function bucketByDay(articles, days = 7) {
-  const buckets = {};
-  const cutoff = Date.now() - days * 86400e3;
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400e3);
-    const k = d.toISOString().slice(0, 10);
-    buckets[k] = { sum: 0, count: 0 };
-  }
-  for (const a of articles) {
-    if (!a.date || !a.sentiment) continue;
-    const t = new Date(a.date).getTime();
-    if (t < cutoff) continue;
-    const k = a.date.slice(0, 10);
-    if (!buckets[k]) continue;
-    buckets[k].sum += (a.sentiment.positive || 0) - (a.sentiment.negative || 0);
-    buckets[k].count += 1;
-  }
-  return Object.entries(buckets).map(([day, v]) => ({
-    day,
-    score: v.count ? v.sum / v.count : 0,
-    count: v.count,
-  }));
+function buildSeries(articles) {
+  const byDay = {};
+  articles.forEach((a) => {
+    if (!a.date || !a.sentiment) return;
+    const d = a.date.slice(0, 10);
+    const s = (a.sentiment.positive || 0) - (a.sentiment.negative || 0);
+    (byDay[d] = byDay[d] || []).push(s);
+  });
+  return Object.entries(byDay)
+    .map(([d, arr]) => ({ d, s: arr.reduce((a, b) => a + b, 0) / arr.length }))
+    .sort((a, b) => a.d.localeCompare(b.d));
 }
 
 function NetSentimentGauge({ score, source }) {
@@ -63,7 +52,7 @@ function NetSentimentGauge({ score, source }) {
   );
 }
 
-function SparkChart({ daily }) {
+function SentimentChart({ series, symbol, source }) {
   const ref = useRef(null);
   const [plotlyReady, setPlotlyReady] = useState(false);
 
@@ -76,32 +65,39 @@ function SparkChart({ daily }) {
 
   useEffect(() => {
     if (!plotlyReady || !ref.current) return;
-    const x = daily.map((d) => d.day);
-    const y = daily.map((d) => d.score);
-    const colors = y.map((v) => (v > 0.1 ? '#00f59b' : v < -0.1 ? '#ff3355' : '#7a7a90'));
-    window.Plotly.newPlot(
-      ref.current,
-      [{
-        x, y,
-        type: 'bar',
-        marker: { color: colors },
-        hovertemplate: '%{x}<br>net: %{y:.2f}<extra></extra>',
-      }],
+    if (!series.length) { try { window.Plotly.purge(ref.current); } catch {} return; }
+    const x = series.map((p) => p.d);
+    const y = series.map((p) => p.s);
+    window.Plotly.newPlot(ref.current, [
       {
-        margin: { l: 28, r: 6, t: 4, b: 22 },
-        height: 110,
-        paper_bgcolor: 'transparent',
-        plot_bgcolor: 'transparent',
-        xaxis: { tickfont: { size: 9, color: '#7a7a90', family: 'Geist Mono' }, gridcolor: 'rgba(255,255,255,0.04)', tickformat: '%m/%d' },
-        yaxis: { tickfont: { size: 9, color: '#7a7a90', family: 'Geist Mono' }, gridcolor: 'rgba(255,255,255,0.04)', zerolinecolor: '#3a3a4d', range: [-1, 1] },
-        showlegend: false,
+        x, y,
+        type: 'scatter', mode: 'lines+markers',
+        line: { color: '#9955ff', width: 2, shape: 'spline' },
+        marker: {
+          size: 8,
+          color: y.map((v) => v > 0.1 ? '#00f59b' : v < -0.1 ? '#ff3355' : '#eab308'),
+        },
+        hovertemplate: '%{x}<br>Sentiment: %{y:+.2f}<extra></extra>',
       },
-      { displayModeBar: false, responsive: true }
-    );
+      {
+        x, y: x.map(() => 0),
+        type: 'scatter', mode: 'lines',
+        line: { color: 'rgba(255,255,255,0.2)', width: 1, dash: 'dot' },
+        hoverinfo: 'skip', showlegend: false,
+      },
+    ], {
+      paper_bgcolor: '#111117', plot_bgcolor: '#111117',
+      font: { color: '#a0a0b4', family: 'Geist Mono', size: 10 },
+      margin: { l: 46, r: 14, t: 28, b: 36 },
+      title: { text: `${symbol} · ${source === 'finbert' ? 'FinBERT' : 'Lexicon'} (positive − negative)`, font: { size: 11, color: '#a0a0b4' } },
+      xaxis: { gridcolor: '#282835', tickfont: { size: 9, color: '#7a7a90', family: 'Geist Mono' } },
+      yaxis: { title: 'Score', gridcolor: '#282835', zeroline: false, tickfont: { size: 9, color: '#7a7a90', family: 'Geist Mono' } },
+      showlegend: false,
+    }, { responsive: true, displayModeBar: false });
     return () => { try { window.Plotly?.purge(ref.current); } catch {} };
-  }, [plotlyReady, daily]);
+  }, [plotlyReady, series, symbol, source]);
 
-  return <div ref={ref} style={{ width: '100%', minHeight: 110 }} />;
+  return <div ref={ref} style={{ width: '100%', height: 220 }} />;
 }
 
 export default function NewsSentimentWidget({ params }) {
@@ -119,6 +115,8 @@ export default function NewsSentimentWidget({ params }) {
     return () => { cancelled = true; };
   }, [symbol]);
 
+  const series = useMemo(() => buildSeries(data?.articles || []), [data]);
+
   if (err) return <div className="err">⚠ {err}</div>;
   if (!data) return <div className="loading"><div className="spinner" />Scoring news on AMD MI300X…</div>;
 
@@ -128,26 +126,30 @@ export default function NewsSentimentWidget({ params }) {
   const netScore = recent.length
     ? recent.reduce((s, a) => s + ((a.sentiment.positive || 0) - (a.sentiment.negative || 0)), 0) / recent.length
     : 0;
-  const daily = bucketByDay(scored, 7);
   const top5 = articles.slice(0, 5);
   const usingFinBERT = data.sentimentSource === 'finbert';
+  const r7 = data.rolling?.d7 ?? null;
+  const r30 = data.rolling?.d30 ?? null;
 
   return (
     <div style={{ padding: '10px 14px 12px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--cloud)', letterSpacing: '.6px' }}>{symbol}</span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.6px' }}>· {scored.length} headlines · 7d</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.6px' }}>· {scored.length} headlines · 7d/30d rolling</span>
         </div>
         <span className="amd-badge">{usingFinBERT ? 'FinBERT · MI300X' : 'Lexicon Fallback'}</span>
       </div>
 
       <NetSentimentGauge score={netScore} source={data.sentimentSource} />
 
-      <div>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.7px', textTransform: 'uppercase', marginBottom: 4 }}>7-Day Daily Net Sentiment</div>
-        <SparkChart daily={daily} />
+      <div style={{ display: 'flex', gap: 18, fontFamily: 'var(--mono)', fontSize: 11, flexWrap: 'wrap', paddingBottom: 2 }}>
+        <span>7d rolling: <b style={{ color: r7 == null ? 'var(--fog)' : r7 >= 0 ? '#00f59b' : '#ff3355' }}>{r7 != null ? (r7 >= 0 ? '+' : '') + r7.toFixed(3) : '—'}</b></span>
+        <span>30d rolling: <b style={{ color: r30 == null ? 'var(--fog)' : r30 >= 0 ? '#00f59b' : '#ff3355' }}>{r30 != null ? (r30 >= 0 ? '+' : '') + r30.toFixed(3) : '—'}</b></span>
+        <span style={{ color: 'var(--fog)' }}>{scored.length} headlines scored</span>
       </div>
+
+      <SentimentChart series={series} symbol={symbol} source={data.sentimentSource} />
 
       <div>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.7px', textTransform: 'uppercase', marginBottom: 6 }}>Top Headlines</div>
