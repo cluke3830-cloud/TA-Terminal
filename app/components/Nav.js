@@ -44,13 +44,21 @@ export default function Nav() {
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  // Digit-key tab navigation: 1–5 jump between top-nav tabs.
+  // Digit-key tab navigation: 1–6 jump between top-nav tabs. ⌘J opens AI drawer.
   // Skip when the user is typing in any input/textarea/contenteditable.
   useEffect(() => {
     const onKey = (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (e.target?.tagName || '').toUpperCase();
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        window.dispatchEvent(new Event('open-ai-drawer'));
+        return;
+      }
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (inField) return;
       const n = parseInt(e.key, 10);
       if (n >= 1 && n <= TAB_ROUTES.length) {
         e.preventDefault();
@@ -60,6 +68,8 @@ export default function Nav() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [router]);
+
+  const openAi = () => window.dispatchEvent(new Event('open-ai-drawer'));
 
   const pick = (symbol) => {
     setQ(''); setResults([]); setOpen(false);
@@ -75,6 +85,9 @@ export default function Nav() {
       <Link href="/options" className={isActive('/options')}>Options</Link>
       <Link href="/portfolio" className={isActive('/portfolio')}>Portfolio</Link>
       <Link href="/custom" className={isActive('/custom')}>Custom</Link>
+      <button className="nav-link nav-ai-btn" onClick={openAi} title="AI Analyst (⌘J)">
+        <span className="nav-ai-mark">✦</span> AI
+      </button>
 
       <div className="nav-search" ref={wrapRef}>
         <span className="nav-search-icon">⌕</span>

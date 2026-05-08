@@ -84,8 +84,6 @@ function OptionsInner() {
         </div>
       </header>
 
-      <div className="warn">⚠ Options data via Alpaca indicative feed; Greeks computed via Black-Scholes (r = 4.3%) · not advice</div>
-
       <div className="sh fi" style={{ padding: '14px 18px', alignItems: 'center', gap: 12 }}>
         <span className="sh-tick">{sym}</span>
         <span className="sh-co">Options Workbench</span>

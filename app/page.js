@@ -160,8 +160,6 @@ function DashboardInner() {
         </div>
       </header>
 
-      <div className="warn">⚠ Free-tier API data — prices may be delayed 15 min · IV from indicative feed · not financial advice</div>
-
       <main className="dash">
         <div id="sec-overview" className="sh fi">
           <span className="sh-tick">{sym}</span>

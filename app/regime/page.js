@@ -310,8 +310,6 @@ function RegimePageInner() {
         </div>
       </header>
 
-      <div className="warn">⚠ Yahoo + FRED data · 4-regime classifier · 3-way ensemble · Research only · Not investment advice</div>
-
       <main className="regime-dash">
         <div className="rg-hero-strip fi">
           <div>

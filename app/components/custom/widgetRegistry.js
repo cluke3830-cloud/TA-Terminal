@@ -18,12 +18,13 @@ export const REGISTRY = {
   MACRO_YIELDS:   lazy(() => import('./widgets/MacroYieldsWidget')),
   MACRO_FX:       lazy(() => import('./widgets/MacroFxWidget')),
   MACRO_COMM:     lazy(() => import('./widgets/MacroCommWidget')),
-  MACRO_FLIGHTS:  lazy(() => import('./widgets/MacroFlightsWidget')),
   MACRO_CAL:      lazy(() => import('./widgets/MacroCalWidget')),
   MACRO_FG:       lazy(() => import('./widgets/MacroFgWidget')),
   WATCHLIST:      lazy(() => import('./widgets/WatchlistWidget')),
   ALERTS:         lazy(() => import('./widgets/AlertsWidget')),
   SCREENER:       lazy(() => import('./widgets/ScreenerWidget')),
+  NEWS_SENTIMENT: lazy(() => import('./widgets/NewsSentimentWidget')),
+  REGIME:         lazy(() => import('./widgets/RegimeWidget')),
 };
 
 export const WIDGET_META = {
@@ -40,10 +41,11 @@ export const WIDGET_META = {
   MACRO_YIELDS:  { title: 'Yield Curve',     needsSymbol: false, defaultSize: { w: 6, h: 2 } },
   MACRO_FX:      { title: 'FX Strength',     needsSymbol: false, defaultSize: { w: 6, h: 2 } },
   MACRO_COMM:    { title: 'Commodities',     needsSymbol: false, defaultSize: { w: 6, h: 2 } },
-  MACRO_FLIGHTS: { title: 'Flights',         needsSymbol: false, defaultSize: { w: 6, h: 2 } },
   MACRO_CAL:     { title: 'Econ Calendar',   needsSymbol: false, defaultSize: { w: 6, h: 2 } },
   MACRO_FG:      { title: 'Fear / Greed',    needsSymbol: false, defaultSize: { w: 4, h: 1 } },
   WATCHLIST:     { title: 'Watchlist',       needsSymbol: false, defaultSize: { w: 4, h: 2 } },
   ALERTS:        { title: 'Alerts',          needsSymbol: false, defaultSize: { w: 4, h: 2 } },
   SCREENER:      { title: 'Screener',        needsSymbol: false, defaultSize: { w: 12, h: 2 } },
+  NEWS_SENTIMENT:{ title: 'News Sentiment · FinBERT', needsSymbol: true, defaultSize: { w: 6, h: 3 } },
+  REGIME:        { title: 'Regime Intelligence',      needsSymbol: true, defaultSize: { w: 6, h: 3 } },
 };

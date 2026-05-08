@@ -42,8 +42,10 @@ export async function GET(request) {
     clearTimeout(timer);
     if (!r.ok) {
       const text = await r.text().catch(() => '');
+      // 404 / 5xx from upstream → service is up but the regime endpoint isn't deployed.
+      // Surface this as `offline: true` so the page/widget can render the friendly fallback.
       return Response.json(
-        { error: `Upstream ${r.status}`, detail: text },
+        { error: `Upstream ${r.status}`, detail: text, offline: true },
         { status: 502 },
       );
     }

@@ -535,8 +535,6 @@ function MacroDashboardInner() {
         </div>
       </header>
 
-      <div className="warn">⚠ Free-tier macro feeds · Cached 5–60min · For research only · Not investment advice</div>
-
       <main className="macro-dash">
         <div className="macro-hero fi">
           <div>

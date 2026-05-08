@@ -1,9 +1,11 @@
 import './globals.css';
 import Script from 'next/script';
+import { Suspense } from 'react';
 import Nav from './components/Nav';
 import CommandPalette from './components/CommandPalette';
 import ToastHost from './components/ToastHost';
 import ShortcutHelp from './components/ShortcutHelp';
+import AIDrawer from './components/AIDrawer';
 
 export const metadata = {
   title: 'Quantum Terminal · Equity + Macro',
@@ -24,6 +26,9 @@ export default function RootLayout({ children }) {
         <CommandPalette />
         <ToastHost />
         <ShortcutHelp />
+        <Suspense fallback={null}>
+          <AIDrawer />
+        </Suspense>
         <Script src="https://cdn.plot.ly/plotly-2.30.0.min.js" strategy="afterInteractive" />
       </body>
     </html>

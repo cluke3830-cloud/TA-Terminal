@@ -32,8 +32,6 @@ function PortfolioInner() {
         </div>
       </header>
 
-      <div className="warn">⚠ Daily closes via Yahoo Finance · log-return Markowitz w/ box constraints · backtest assumes T+1 close fills · not advice</div>
-
       <FrontierSection plotlyReady={plotlyReady} />
       <BacktestSection plotlyReady={plotlyReady} />
       <RiskSection plotlyReady={plotlyReady} />
