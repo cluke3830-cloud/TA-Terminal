@@ -7,11 +7,5 @@
     "app/data_pages/insider/route.js": { "maxDuration": 60 },
     "app/data_pages/mc/gpu/route.js": { "maxDuration": 60 },
     "app/api/keepalive/route.js": { "maxDuration": 15 }
-  },
-  "crons": [
-    {
-      "path": "/api/keepalive",
-      "schedule": "*/10 * * * *"
-    }
-  ]
+  }
 }
