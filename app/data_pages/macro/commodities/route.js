@@ -2,11 +2,12 @@ export const dynamic = 'force-dynamic';
 
 import { getCached, setCache } from '../../_cache';
 import YahooFinance from 'yahoo-finance2';
+import { fetchWithTimeout, withTimeout, pooled } from '../../_lib/http';
 
-// Yahoo-first for liveness: unlimited, no key, refreshes near-real-time
-// (futures lag ~10 min on free tier). FMP fills gaps when Yahoo misses a
-// symbol. With Yahoo as primary the 250/day FMP cap stops being the
-// bottleneck, letting us drop the cache to 30s for live-feel updates.
+// Yahoo first (no key, futures delayed about 10 minutes); FMP fills a symbol
+// Yahoo misses. Every upstream call has a timeout and at most five run at
+// once, so one slow source cannot hold the whole route until it is killed.
+// A commodity with no data comes back with empty fields, not a guess.
 
 const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
@@ -31,7 +32,7 @@ const COMM = [
 async function fmpQuote(symbol, key) {
   if (!key) return null;
   try {
-    const r = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
+    const r = await fetchWithTimeout(`https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${key}`, {}, 5000);
     if (!r.ok) return null;
     const j = await r.json();
     if (j && j['Error Message']) return null;
@@ -42,7 +43,7 @@ async function fmpQuote(symbol, key) {
 async function fmpHistory(symbol, key) {
   if (!key) return null;
   try {
-    const r = await fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${symbol}&apikey=${key}`, { cache: 'no-store' });
+    const r = await fetchWithTimeout(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${symbol}&apikey=${key}`, {}, 5000);
     if (!r.ok) return null;
     const j = await r.json();
     if (!Array.isArray(j) || j.length === 0) return null;
@@ -57,8 +58,8 @@ async function yahooQuoteAndHistory(yahooSymbol) {
     oneYearAgo.setUTCDate(oneYearAgo.getUTCDate() - 30); // small buffer for YTD anchor
 
     const [q, hist] = await Promise.all([
-      yahoo.quote(yahooSymbol).catch(() => null),
-      yahoo.chart(yahooSymbol, { period1: oneYearAgo, interval: '1d' }).catch(() => null),
+      withTimeout(yahoo.quote(yahooSymbol), 6000, 'Yahoo quote').catch(() => null),
+      withTimeout(yahoo.chart(yahooSymbol, { period1: oneYearAgo, interval: '1d' }), 7000, 'Yahoo chart').catch(() => null),
     ]);
 
     const quote = q ? {
@@ -103,7 +104,7 @@ function deriveStats(history) {
 async function eiaElectricity(key) {
   try {
     const url = `https://api.eia.gov/v2/electricity/wholesale/prices/data/?api_key=${key}&frequency=daily&data[0]=price&sort[0][column]=period&sort[0][direction]=desc&offset=0&length=260`;
-    const r = await fetch(url, { cache: 'no-store' });
+    const r = await fetchWithTimeout(url, {}, 6000);
     if (!r.ok) return null;
     const j = await r.json();
     const data = j?.response?.data;
@@ -144,20 +145,26 @@ export async function GET() {
   const EIA = process.env.EIA_API_KEY;
 
   try {
-    const results = await Promise.all(COMM.map((c) => fetchOne(c, KEY)));
+    const results = (await pooled(COMM.map((c) => () => fetchOne(c, KEY)), 5))
+      .map((r, i) => r || { c: COMM[i], quote: null, history: null, source: 'unavailable' });
 
     const commodities = results.map(({ c, quote, history, source }) => {
       const stats = deriveStats(history);
-      const price = quote?.price ?? (stats.sparkline.length ? stats.sparkline[stats.sparkline.length - 1] : null);
+      const sp = stats.sparkline;
+      const price = quote?.price ?? (sp.length ? sp[sp.length - 1] : null);
+      // No live quote: the day's change is the last close against the one before.
+      const histChange = quote?.change == null && sp.length > 1 ? sp[sp.length - 1] - sp[sp.length - 2] : null;
+      const histChangePct = histChange != null && sp[sp.length - 2] > 0 ? (histChange / sp[sp.length - 2]) * 100 : null;
       return {
         symbol: c.symbol,
         name: c.name,
         unit: c.unit,
         category: c.cat,
         price,
-        change: quote?.change ?? null,
-        changePct: quote?.changesPercentage != null ? +Number(quote.changesPercentage).toFixed(2) : null,
-        sparkline: stats.sparkline.length > 1 ? stats.sparkline : (price != null ? [price, price] : []),
+        change: quote?.change ?? histChange,
+        changePct: quote?.changesPercentage != null ? +Number(quote.changesPercentage).toFixed(2)
+          : (histChangePct != null ? +histChangePct.toFixed(2) : null),
+        sparkline: stats.sparkline.length > 1 ? stats.sparkline : [],
         ytdPct: stats.ytdPct,
         weekHigh52: stats.weekHigh52,
         weekLow52: stats.weekLow52,
@@ -166,7 +173,7 @@ export async function GET() {
       };
     });
 
-    const elec = EIA ? await eiaElectricity(EIA) : null;
+    const elec = EIA ? await eiaElectricity(EIA) : null; // has its own 6 s timeout
     if (elec && elec.length > 0) {
       const stats = deriveStats(elec);
       commodities.push({

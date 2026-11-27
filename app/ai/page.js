@@ -137,7 +137,7 @@ function AIPage() {
         <div className="ai-page-title-row">
           <span className="ai-page-mark">✦</span>
           <span className="ai-page-title">AI ANALYST</span>
-          <span className="amd-badge" style={{ marginLeft: 8 }}>Gemini 2.5 Flash · MI300X</span>
+          <span className="amd-badge" style={{ marginLeft: 8 }}>Gemini 2.5 Flash · Google Search</span>
         </div>
         <div className="ai-page-ticker-row">
           <form onSubmit={(e) => { e.preventDefault(); changeTicker(tickerInput || ticker); }} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

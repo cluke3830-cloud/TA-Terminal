@@ -123,10 +123,10 @@ export default function RegimeWidget({ params }) {
     return (
       <div style={{ padding: '14px', fontFamily: 'var(--mono)' }}>
         <div style={{ fontSize: 11, color: '#ff3355', fontWeight: 600, letterSpacing: '.4px', marginBottom: 6 }}>
-          {offline ? 'GPU droplet offline' : '⚠ Regime engine error'}
+          {offline ? 'Regime service offline' : '⚠ Regime engine error'}
         </div>
         <div style={{ fontSize: 10, color: 'var(--mist)', lineHeight: 1.6 }}>
-          {offline ? 'The regime classifier runs on the AMD MI300X droplet. Bring it back online to compute regimes.' : err}
+          {offline ? 'The regime classifier runs on a separate Python service (REGIME_API_URL). It is not answering right now.' : err}
         </div>
       </div>
     );
@@ -169,7 +169,7 @@ export default function RegimeWidget({ params }) {
           <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--cloud)', letterSpacing: '.6px' }}>{symbol}</span>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.6px' }}>· {lastDate}</span>
         </div>
-        <span className="amd-badge">{modelTag} · MI300X</span>
+        <span className="amd-badge">{modelTag}</span>
       </div>
 
       <div style={{

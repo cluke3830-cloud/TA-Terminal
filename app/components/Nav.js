@@ -116,7 +116,6 @@ export default function Nav() {
         )}
       </div>
 
-      <span className="app-nav-tag">AMD HACKATHON · CHAMPIONSHIP EDITION</span>
     </nav>
   );
 }

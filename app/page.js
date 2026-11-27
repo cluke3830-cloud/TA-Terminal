@@ -16,7 +16,7 @@ const FOCUS_TO_ID = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  QUANTUM STOCK TERMINAL — Main Page
+//  TA TERMINAL — Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function fmt(n, d = 2) {
@@ -296,7 +296,7 @@ function DashboardInner() {
             {(news?.articles?.length > 0 || fc?.news?.length > 0) && (
               <div style={{ padding: '0 18px 16px' }}>
                 <div className="sl" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <span>Recent News {news?.sentimentAvailable ? '· FinBERT scored' : ''}</span>
+                  <span>Recent News {news?.sentimentAvailable ? '· sentiment scored' : ''}</span>
                   {news?.rolling?.d7 != null && (
                     <span style={{ fontSize: 10, color: 'var(--ash)', fontFamily: 'var(--mono)' }}>
                       7d: <b className={news.rolling.d7 >= 0 ? 'vg' : 'vr'}>{news.rolling.d7 >= 0 ? '+' : ''}{news.rolling.d7?.toFixed(2)}</b>

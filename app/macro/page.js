@@ -294,6 +294,8 @@ function MacroDashboardInner() {
   const [feargreed, setFeargreed] = useState(null);
   const [geoData, setGeoData] = useState(null);
   const [oilData, setOilData] = useState(null);
+  const [geoMeta, setGeoMeta] = useState(null);
+  const [oilMeta, setOilMeta] = useState(null);
 
   const [mapTab, setMapTab] = useState('geo');
   const [yieldTab, setYieldTab] = useState('current');
@@ -392,8 +394,8 @@ function MacroDashboardInner() {
     fetchS('fx', '/data_pages/macro/fx', setFx);
     fetchS('flows', '/data_pages/macro/flows', setFlows);
     fetchS('flights', '/data_pages/macro/flights', setFlights);
-    fetchS('geo', '/data_pages/macro/geopolitical?view=risk', (d) => setGeoData(d.data));
-    fetchS('oil', '/data_pages/macro/geopolitical?view=oil', (d) => setOilData(d.data));
+    fetchS('geo', '/data_pages/macro/geopolitical?view=risk', (d) => { setGeoData(d.data); setGeoMeta(d); });
+    fetchS('oil', '/data_pages/macro/geopolitical?view=oil', (d) => { setOilData(d.data); setOilMeta(d); });
     // FearGreed last (depends on others, server-side aggregator)
     setTimeout(() => fetchS('fg', '/data_pages/macro/feargreed', setFeargreed), 1500);
   }, [fetchS]);
@@ -425,7 +427,7 @@ function MacroDashboardInner() {
         type: 'choropleth', locationmode: 'ISO-3',
         locations: geoData.map((d) => d.iso3),
         z: geoData.map((d) => d.score),
-        text: geoData.map((d) => `${d.country}<br>Risk: ${d.score}/10<br>${(d.factors || []).join(', ')}`),
+        text: geoData.map((d) => `${d.country}<br>Instability: ${d.score}/10<br>World Bank estimate ${d.estimate} (${d.year})`),
         hovertemplate: '%{text}<extra></extra>',
         colorscale: [
           [0, '#0a1530'], [0.25, '#1a2a5e'], [0.5, '#aa3300'],
@@ -433,14 +435,14 @@ function MacroDashboardInner() {
         ],
         zmin: 0, zmax: 10,
         marker: { line: { color: '#1e1e28', width: 0.4 } },
-        colorbar: { title: { text: 'Risk', font: CHART_FONT }, tickfont: CHART_FONT, len: 0.6, thickness: 10, x: 0.99, bgcolor: 'rgba(0,0,0,0)' },
+        colorbar: { title: { text: 'Instability', font: CHART_FONT }, tickfont: CHART_FONT, len: 0.6, thickness: 10, x: 0.99, bgcolor: 'rgba(0,0,0,0)' },
       };
     } else if (mapTab === 'oil' && oilData) {
       trace = {
         type: 'choropleth', locationmode: 'ISO-3',
         locations: oilData.map((d) => d.iso3),
         z: oilData.map((d) => d.reserves),
-        text: oilData.map((d) => `${d.country}<br>Reserves: ${d.reserves} Bbbl`),
+        text: oilData.map((d) => `${d.country}<br>Reserves: ${d.reserves} Bbbl (${d.year})`),
         hovertemplate: '%{text}<extra></extra>',
         colorscale: [
           [0, '#001515'], [0.2, '#003a3a'], [0.5, '#00d4ff'],
@@ -570,8 +572,8 @@ function MacroDashboardInner() {
         {/* ──────────── 0. FEAR & GREED ──────────── */}
         <section className="msec fi">
           <div className="msec-h">
-            <div className="msec-t"><span className="msec-t-num">00</span>Fear &amp; Greed Index · {feargreed?.source === 'CNN' ? 'CNN Live' : 'Macro Composite'}</div>
-            {feargreed && <span className="badge b-c">{feargreed.source === 'CNN' ? 'CNN · ' : ''}Score {feargreed.score}</span>}
+            <div className="msec-t"><span className="msec-t-num">00</span>Fear &amp; Greed Index · Market Composite</div>
+            {feargreed && <span className="badge b-c">Score {feargreed.score}{feargreed.asOf ? ` · ${feargreed.asOf}` : ''}</span>}
           </div>
           <div className="msec-b">
             {ld.fg && !feargreed && <Load t="Loading Fear & Greed…" />}
@@ -580,24 +582,23 @@ function MacroDashboardInner() {
               <div className="fg-wrap">
                 <div className="fg-gauge">
                   <FearGreedGauge score={feargreed.score} label={feargreed.label} color={feargreed.color} />
-                  {feargreed.source === 'CNN' && feargreed.cnnMeta && (
+                  {feargreed.history && (
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', margin: '4px 0 10px', fontFamily: 'var(--mono)', fontSize: 10 }}>
-                      <span style={{ background: 'rgba(0,212,255,0.1)', color: 'var(--neon-cyan)', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 4, padding: '2px 8px', fontWeight: 700, letterSpacing: '.5px' }}>CNN INDEX</span>
-                      {feargreed.cnnMeta.previousClose != null && <span style={{ color: 'var(--mist)' }}>PREV {feargreed.cnnMeta.previousClose.toFixed(0)}</span>}
-                      {feargreed.cnnMeta.prev1w != null && <span style={{ color: 'var(--mist)' }}>1W {feargreed.cnnMeta.prev1w.toFixed(0)}</span>}
-                      {feargreed.cnnMeta.prev1m != null && <span style={{ color: 'var(--mist)' }}>1M {feargreed.cnnMeta.prev1m.toFixed(0)}</span>}
-                      {feargreed.cnnMeta.prev1y != null && <span style={{ color: 'var(--mist)' }}>1Y {feargreed.cnnMeta.prev1y.toFixed(0)}</span>}
+                      {feargreed.history.previousClose != null && <span style={{ color: 'var(--mist)' }}>PREV {feargreed.history.previousClose.toFixed(0)}</span>}
+                      {feargreed.history.prev1w != null && <span style={{ color: 'var(--mist)' }}>1W {feargreed.history.prev1w.toFixed(0)}</span>}
+                      {feargreed.history.prev1m != null && <span style={{ color: 'var(--mist)' }}>1M {feargreed.history.prev1m.toFixed(0)}</span>}
+                      {feargreed.history.prev1y != null && <span style={{ color: 'var(--mist)' }}>1Y {feargreed.history.prev1y.toFixed(0)}</span>}
                     </div>
                   )}
-                  {feargreed.source === 'macro' && (
-                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#ff8833', textAlign: 'center', margin: '4px 0 10px' }}>
-                      CNN unavailable — showing macro composite
+                  {feargreed.method && (
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ash)', textAlign: 'center', margin: '0 0 10px', lineHeight: 1.5 }}>
+                      {feargreed.method}
                     </div>
                   )}
                 </div>
                 <div className="fg-cmp">
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--mist)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 10 }}>
-                    {feargreed.source === 'CNN' ? 'CNN Sub-Indicators' : 'Macro Sub-Indicators'}
+                    Gauges · rank against the past year
                   </div>
                   {feargreed.components.map((c) => {
                     const barColor = c.score < 40 ? '#ff3355' : c.score > 60 ? '#00f59b' : '#ffc700';
@@ -605,7 +606,7 @@ function MacroDashboardInner() {
                       <div key={c.name} className="fg-row">
                         <div>
                           <div className="fg-row-n">{c.name}</div>
-                          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', marginTop: 2, textTransform: 'capitalize' }}>{c.desc || c.signal?.toLowerCase()}</div>
+                          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', marginTop: 2, }}>{c.desc || c.signal?.toLowerCase()}</div>
                         </div>
                         <div className="fg-row-bar"><div className="fg-row-bar-f" style={{ width: c.score + '%', background: barColor }} /></div>
                         <div className="fg-row-s" style={{ color: barColor }}>{c.score.toFixed(0)}</div>
@@ -623,7 +624,7 @@ function MacroDashboardInner() {
           <div className="msec-h">
             <div className="msec-t"><span className="msec-t-num">01</span>World Map · Geopolitics & Satellite</div>
             <div className="wmap-tabs">
-              <button className={`mt ${mapTab === 'geo' ? 'a' : ''}`} onClick={() => setMapTab('geo')}>Geopolitical Risk</button>
+              <button className={`mt ${mapTab === 'geo' ? 'a' : ''}`} onClick={() => setMapTab('geo')}>Political Stability</button>
               <button className={`mt ${mapTab === 'oil' ? 'a' : ''}`} onClick={() => setMapTab('oil')} style={{ marginLeft: 6 }}>Oil Reserves</button>
             </div>
           </div>
@@ -631,18 +632,20 @@ function MacroDashboardInner() {
           <div className="wmap-stats">
             {mapTab === 'geo' && geoData && (
               <>
-                <span>HIGH RISK COUNTRIES (≥7): <b>{geoData.filter((d) => d.score >= 7).length}</b></span>
-                <span>ACTIVE CONFLICTS: <b>{geoData.filter((d) => d.factors.some((f) => /war|conflict/i.test(f))).length}</b></span>
-                <span>UPDATED: <b>QUARTERLY</b></span>
+                <span>LEAST STABLE (≥7): <b>{geoData.filter((d) => d.score >= 7).length} of {geoData.length}</b></span>
+                <span>HIGHEST: <b>{geoData[0]?.country} · {geoData[0]?.score}</b></span>
+                <span>SOURCE: <b>WORLD BANK POLITICAL STABILITY SCORE · {geoMeta?.year}</b> (yearly, not a live conflict feed)</span>
               </>
             )}
-            {mapTab === 'oil' && oilData && (
+            {mapTab === 'oil' && oilData && oilData.length > 0 && (
               <>
                 <span>TOP HOLDER: <b>{oilData[0].country} · {oilData[0].reserves} Bbbl</b></span>
-                <span>OPEC SHARE: <b>~80%</b></span>
-                <span>SOURCE: <b>BP STATISTICAL REVIEW</b></span>
+                {oilMeta?.opecSharePct != null && <span>OPEC SHARE: <b>{oilMeta.opecSharePct}%</b></span>}
+                <span>SOURCE: <b>US EIA · {oilMeta?.year}</b></span>
               </>
             )}
+            {mapTab === 'oil' && er.oil && <span style={{ color: '#ff8833' }}>Oil reserves unavailable: {er.oil}</span>}
+            {mapTab === 'geo' && er.geo && <span style={{ color: '#ff8833' }}>Stability scores unavailable: {er.geo}</span>}
           </div>
         </section>
 
@@ -661,14 +664,25 @@ function MacroDashboardInner() {
                         <span className="cb-name">{b.flag} {b.abbr} · {b.currency}</span>
                         <span className={`cb-trend ${b.trend}`}>{b.trend}</span>
                       </div>
-                      <div className="cb-rate">{b.rate.toFixed(2)}<span style={{ fontSize: 14, color: 'var(--smoke)', marginLeft: 4 }}>%</span></div>
+                      <div className="cb-rate">{b.range ? `${b.range.lower.toFixed(2)}–${b.range.upper.toFixed(2)}` : b.rate.toFixed(2)}<span style={{ fontSize: 14, color: 'var(--smoke)', marginLeft: 4 }}>%</span></div>
                       <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ash)' }}>{b.name}</div>
                       <div className="cb-meet">
-                        <span>NEXT MEETING</span>
-                        <b>{b.nextMeeting || 'TBD'}</b>
+                        <span>LAST MOVE</span>
+                        <b>{b.lastChange ? `${b.change > 0 ? '+' : ''}${Math.round(b.change * 100)}bp · ${b.lastChange}` : '—'}</b>
                       </div>
+                      {b.nextMeeting && (
+                        <div className="cb-meet">
+                          <span>NEXT MEETING</span>
+                          <b>{b.nextMeeting}</b>
+                        </div>
+                      )}
                     </div>
                   ))}
+                </div>
+              )}
+              {banks?.banks && (
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ash)', marginTop: 8 }}>
+                  Live from {banks.source} · latest reading {banks.banks.map((b) => b.asOf).sort().pop()} · a move older than one year shows as hold
                 </div>
               )}
             </div>
@@ -847,7 +861,7 @@ function MacroDashboardInner() {
                   <div className="flow-map" ref={flowMapRef} />
                 </div>
                 <div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ash)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Reserve Currency Composition (IMF COFER)</div>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ash)', marginBottom: 8, letterSpacing: 1, textTransform: 'uppercase' }}>Reserve Currency Composition (IMF COFER{flows?.compositionPeriod ? ` · ${flows.compositionPeriod}` : ''})</div>
                   <div className="flow-sankey" ref={flowSankeyRef} />
                 </div>
               </div>
@@ -857,15 +871,15 @@ function MacroDashboardInner() {
 
         {/* ──────────── 8. SENTIMENT HEATMAP (FinBERT) ──────────── */}
         <section className="msec fi">
-          <div className="msec-h"><div className="msec-t"><span className="msec-t-num">08</span>Sector Sentiment · FinBERT on AMD MI300X</div></div>
+          <div className="msec-h"><div className="msec-t"><span className="msec-t-num">08</span>Sector Sentiment · headline word-list score</div></div>
           <div className="msec-b">
             <SentimentHeatmap />
           </div>
         </section>
 
         <div className="footer">
-          DATA · FRED (Federal Reserve) · FMP · OpenSky Network · World Bank · EIA · IMF COFER · BP Statistical Review<br />
-          TA Terminal · AMD Hackathon Championship Edition · Built for retail traders
+          DATA · US Treasury · New York Fed · BIS · BLS · IMF COFER · World Bank · EIA · ECB (Frankfurter) · Yahoo Finance · FMP · OpenSky Network<br />
+          TA Terminal · every figure is read live from the source named beside it
         </div>
       </main>
     </>

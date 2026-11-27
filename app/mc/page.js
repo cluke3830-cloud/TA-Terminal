@@ -392,7 +392,7 @@ function MCPricerInner() {
             </h1>
             <div className="mc-head-blurb">{OPTION_BLURB[optionType] || 'Pick a strike and expiry, then hit Run.'}</div>
           </div>
-          <div className="mc-head-tag mc-head-tag-r">Quick (browser) vs <span style={{ color: '#00f59b' }}>Fast (AMD MI300X)</span></div>
+          <div className="mc-head-tag mc-head-tag-r">Runs in your browser{!gpuOffline && <> · <span style={{ color: '#00f59b' }}>GPU server connected</span></>}</div>
         </div>
       )}
 
@@ -466,13 +466,16 @@ function MCPricerInner() {
               <div className="mc-radio-s">Pure JavaScript · works on any laptop · slower at large simulation counts</div>
             </div>
           </label>
-          <label className={`mc-radio ${engine === 'gpu' ? 'a' : ''} ${gpuOffline ? 'off' : ''}`}>
-            <input type="radio" name="engine" checked={engine === 'gpu'} onChange={() => setEngine('gpu')} disabled={gpuOffline} />
-            <div>
-              <div className="mc-radio-t">Fast · AMD MI300X GPU {gpuOffline && <span className="mc-offline-tag">offline</span>}</div>
-              <div className="mc-radio-s">PyTorch on ROCm · 192&nbsp;GB HBM3 memory · ~70× faster than CPU</div>
-            </div>
-          </label>
+          {/* Shown only when a self-hosted gpu-service answers (MC_GPU_URL). */}
+          {!gpuOffline && (
+            <label className={`mc-radio ${engine === 'gpu' ? 'a' : ''}`}>
+              <input type="radio" name="engine" checked={engine === 'gpu'} onChange={() => setEngine('gpu')} />
+              <div>
+                <div className="mc-radio-t">Fast · GPU server</div>
+                <div className="mc-radio-s">PyTorch on a self-hosted gpu-service</div>
+              </div>
+            </label>
+          )}
           <button className="mc-run" onClick={onRun} disabled={!!running}>
             {running ? '▶ Running…' : '▶ Run'}
           </button>
@@ -481,7 +484,7 @@ function MCPricerInner() {
           <div className="mc-progress">
             <div className="mc-progress-bar"><div className="mc-progress-fill" style={{ width: `${(progress * 100).toFixed(1)}%` }} /></div>
             <div className="mc-progress-meta">
-              <span>{Math.round(progress * 100)}% · {(running === 'cpu' ? 'CPU' : 'MI300X')}</span>
+              <span>{Math.round(progress * 100)}% · {(running === 'cpu' ? 'CPU' : 'GPU')}</span>
               <span>{fmtMs(elapsed)}</span>
             </div>
           </div>
@@ -492,7 +495,7 @@ function MCPricerInner() {
       {/* ── RESULT ── */}
       <section className="mc-card mc-result fi fi3">
         <div className="card-h">
-          <span className="card-t">{result ? (result.source === 'mi300x' ? 'Result · AMD MI300X' : 'Result · browser') : 'Result'}</span>
+          <span className="card-t">{result ? (result.source === 'mi300x' ? 'Result · GPU server' : 'Result · browser') : 'Result'}</span>
           <span className="badge b-c">{paths.toLocaleString()} simulations · {steps} steps</span>
         </div>
         {!result && !running && <div className="loading" style={{ padding: 28 }}>Set up the option above and hit Run.</div>}
@@ -501,15 +504,15 @@ function MCPricerInner() {
             <ResultCell label="Estimated fair price" value={`$${fmtNum(result.price, 4)}`} hint={`± $${fmtNum(result.stderr, 4)} (95% confidence)`} accent="#00f59b" />
             <ResultCell label="How long it took" value={fmtMs(result.runtimeMs)} hint={`${(paths * steps).toLocaleString()} random walks`} accent="#00d4ff" />
             <ResultCell label="Speed" value={fmtThroughput(result.pathsPerSec)} hint="simulated steps per second" accent="#00d4ff" />
-            <ResultCell label="Engine" value={result.source === 'mi300x' ? 'AMD MI300X' : 'Browser'} hint={result.source === 'mi300x' ? 'PyTorch · ROCm · 192 GB HBM3' : 'JavaScript · single core'} accent="#9955ff" />
+            <ResultCell label="Engine" value={result.source === 'mi300x' ? 'GPU server' : 'Browser'} hint={result.source === 'mi300x' ? 'PyTorch on gpu-service' : 'JavaScript · single core'} accent="#9955ff" />
           </div>
         )}
         {speedup != null && (
           <div className="mc-speedup" title={`Last CPU: ${fmtMs(history.cpu.runtimeMs)} · Last GPU: ${fmtMs(history.gpu.runtimeMs)}`}>
             <span className="mc-speedup-bolt">⚡</span>
             <span className="mc-speedup-text">
-              MI300X is <b className="mc-speedup-x">{speedup.toFixed(1)}×</b> faster than CPU
-              <span className="mc-speedup-sub">(CPU {fmtMs(history.cpu.runtimeMs)} → MI300X {fmtMs(history.gpu.runtimeMs)})</span>
+              GPU is <b className="mc-speedup-x">{speedup.toFixed(1)}×</b> faster than CPU
+              <span className="mc-speedup-sub">(CPU {fmtMs(history.cpu.runtimeMs)} → GPU {fmtMs(history.gpu.runtimeMs)})</span>
             </span>
           </div>
         )}

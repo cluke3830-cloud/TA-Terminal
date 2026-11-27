@@ -1,94 +1,96 @@
+export const dynamic = 'force-dynamic';
+
 import { getCached, setCache } from '../../_cache';
+import { getJson } from '../../_lib/http';
 
-// IMF COFER reserve currency composition (Q4 2024 latest reported)
-const RESERVE_COMPOSITION = [
-  { currency: 'USD', share: 57.4, color: '#00d4ff' },
-  { currency: 'EUR', share: 19.8, color: '#9955ff' },
-  { currency: 'JPY', share: 5.5,  color: '#ff8833' },
-  { currency: 'GBP', share: 4.7,  color: '#3377ff' },
-  { currency: 'CNY', share: 2.2,  color: '#ff3355' },
-  { currency: 'CAD', share: 2.6,  color: '#00f59b' },
-  { currency: 'AUD', share: 2.1,  color: '#ffc700' },
-  { currency: 'CHF', share: 0.2,  color: '#7a7a90' },
-  { currency: 'Other', share: 5.5, color: '#3a3a4d' },
-];
+// Reserve currency shares: IMF COFER (Currency Composition of Official
+// Foreign Exchange Reserves), world total, share of allocated reserves, latest
+// quarter the IMF has published. Reserve holders: World Bank, total reserves
+// including gold, latest year per country. Both are read live with no key and
+// both carry the period they refer to. Nothing here is typed in.
 
-// Top FX reserve holders (US$ Bn, World Bank latest annual data approximation)
-const RESERVE_HOLDERS = [
-  { country: 'China',         iso3: 'CHN', reserves: 3340 },
-  { country: 'Japan',         iso3: 'JPN', reserves: 1230 },
-  { country: 'Switzerland',   iso3: 'CHE', reserves:  830 },
-  { country: 'India',         iso3: 'IND', reserves:  670 },
-  { country: 'Russia',        iso3: 'RUS', reserves:  590 },
-  { country: 'Taiwan',        iso3: 'TWN', reserves:  570 },
-  { country: 'Saudi Arabia',  iso3: 'SAU', reserves:  470 },
-  { country: 'Hong Kong',     iso3: 'HKG', reserves:  430 },
-  { country: 'South Korea',   iso3: 'KOR', reserves:  420 },
-  { country: 'Brazil',        iso3: 'BRA', reserves:  370 },
-  { country: 'Singapore',     iso3: 'SGP', reserves:  360 },
-  { country: 'Germany',       iso3: 'DEU', reserves:  290 },
-  { country: 'Thailand',      iso3: 'THA', reserves:  240 },
-  { country: 'France',        iso3: 'FRA', reserves:  240 },
-  { country: 'United States', iso3: 'USA', reserves:  240 },
-  { country: 'Mexico',        iso3: 'MEX', reserves:  220 },
-  { country: 'United Kingdom',iso3: 'GBR', reserves:  190 },
-  { country: 'Italy',         iso3: 'ITA', reserves:  220 },
-  { country: 'Israel',        iso3: 'ISR', reserves:  210 },
-  { country: 'Indonesia',     iso3: 'IDN', reserves:  150 },
-  { country: 'Czech Republic',iso3: 'CZE', reserves:  140 },
-  { country: 'Poland',        iso3: 'POL', reserves:  220 },
-  { country: 'Turkey',        iso3: 'TUR', reserves:  170 },
-  { country: 'United Arab Emirates', iso3: 'ARE', reserves: 230 },
-  { country: 'Australia',     iso3: 'AUS', reserves:   60 },
-  { country: 'Canada',        iso3: 'CAN', reserves:  120 },
-];
+const COLORS = {
+  USD: '#00d4ff', EUR: '#9955ff', JPY: '#ff8833', GBP: '#3377ff', CNY: '#ff3355',
+  CAD: '#00f59b', AUD: '#ffc700', CHF: '#7a7a90', Other: '#3a3a4d',
+};
+const ORDER = ['USD', 'EUR', 'JPY', 'GBP', 'CNY', 'CAD', 'AUD', 'CHF', 'Other'];
 
-// Bilateral capital flow approximations (annual, US$ Bn, simplified)
-const TRADE_FLOWS = [
-  { from: 'USA', to: 'CHN', value: 425, type: 'import' },
-  { from: 'CHN', to: 'USA', value: 145, type: 'import' },
-  { from: 'USA', to: 'EUR', value: 555, type: 'export' },
-  { from: 'EUR', to: 'USA', value: 615, type: 'export' },
-  { from: 'CHN', to: 'EUR', value: 510, type: 'export' },
-  { from: 'JPN', to: 'USA', value: 145, type: 'export' },
-  { from: 'KOR', to: 'CHN', value: 130, type: 'export' },
-];
+// World (G001) · allocated reserves (AFXRA) · every currency · share (SHRO_PT) · quarterly
+const COFER_URL = 'https://api.imf.org/external/sdmx/2.1/data/IMF.STA,COFER/G001.AFXRA..SHRO_PT.Q?lastNObservations=1';
+
+export function parseCofer(j) {
+  const dims = j?.structure?.dimensions;
+  const series = j?.dataSets?.[0]?.series;
+  if (!dims || !series) throw new Error('IMF COFER: unexpected response shape');
+  const curIdx = dims.series.findIndex((d) => d.id === 'FXR_CURRENCY');
+  const curVals = dims.series[curIdx].values;
+  const periods = dims.observation[0].values;
+
+  const rows = [];
+  for (const [key, s] of Object.entries(series)) {
+    const code = curVals[+key.split(':')[curIdx]]?.id || '';
+    for (const [obsKey, obs] of Object.entries(s.observations || {})) {
+      const value = parseFloat(obs[0]);
+      const period = periods[+obsKey]?.id;
+      if (Number.isFinite(value) && period) rows.push({ code, period, value });
+    }
+  }
+  // Each series reports its own last quarter (the Deutsche mark's is 1998).
+  // Keep only the newest quarter.
+  const latest = rows.map((r) => r.period).sort().pop();
+  const composition = rows
+    .filter((r) => r.period === latest && r.code !== 'CI_T')
+    .map((r) => {
+      const ccy = r.code === 'CI_OTHC' ? 'Other' : r.code.replace('CI_', '');
+      return { currency: ccy, share: +r.value.toFixed(1), color: COLORS[ccy] || '#3a3a4d' };
+    })
+    .filter((r) => ORDER.includes(r.currency))
+    .sort((a, b) => ORDER.indexOf(a.currency) - ORDER.indexOf(b.currency));
+  if (composition.length === 0) throw new Error('IMF COFER: no shares for the latest quarter');
+  return { composition, period: latest };
+}
 
 async function worldBankReserves() {
-  // Optional live enrichment from World Bank (FI.RES.TOTL.CD)
-  try {
-    const r = await fetch('https://api.worldbank.org/v2/country/all/indicator/FI.RES.TOTL.CD?format=json&mrnev=1&per_page=300', { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = await r.json();
-    if (!Array.isArray(j) || !Array.isArray(j[1])) return null;
-    return j[1]
-      .filter((d) => d.value != null && d.country?.id && d.country.id.length === 3)
-      .map((d) => ({
-        country: d.country.value,
-        iso3: d.countryiso3code || d.country.id,
-        reserves: +(d.value / 1e9).toFixed(1),
-        year: d.date,
-      }))
-      .sort((a, b) => b.reserves - a.reserves);
-  } catch (_) { return null; }
+  const j = await getJson(
+    'https://api.worldbank.org/v2/country/all/indicator/FI.RES.TOTL.CD?format=json&mrnev=1&per_page=300', {}, 9000,
+  );
+  if (!Array.isArray(j) || !Array.isArray(j[1])) throw new Error('World Bank: unexpected response shape');
+  return j[1]
+    // Aggregates (World, regions, income groups) have no 3-letter ISO code.
+    .filter((d) => d.value != null && d.countryiso3code && d.countryiso3code.length === 3 && d.country?.id?.length === 2 && !/^[0-9XZ]/.test(d.country.id))
+    .map((d) => ({
+      country: d.country.value,
+      iso3: d.countryiso3code,
+      reserves: +(d.value / 1e9).toFixed(1),
+      year: d.date,
+    }))
+    .sort((a, b) => b.reserves - a.reserves);
 }
 
 export async function GET() {
   const cached = getCached('macro:flows');
   if (cached) return Response.json(cached);
 
-  let holders = RESERVE_HOLDERS;
-  const wb = await worldBankReserves();
-  if (wb && wb.length > 10) {
-    holders = wb.slice(0, 50).filter((h) => h.iso3 && h.iso3.length === 3);
+  const errors = {};
+  const [cofer, holders] = await Promise.all([
+    getJson(COFER_URL, { headers: { Accept: 'application/json' } }, 9000).then(parseCofer)
+      .catch((e) => { errors.cofer = e.message; return null; }),
+    worldBankReserves().catch((e) => { errors.reserves = e.message; return null; }),
+  ]);
+
+  if (!cofer && !holders) {
+    return Response.json({ error: 'Reserve data unavailable', errors }, { status: 502 });
   }
 
   const data = {
-    reserveComposition: RESERVE_COMPOSITION,
-    reserveHolders: holders,
-    tradeFlows: TRADE_FLOWS,
+    reserveComposition: cofer ? cofer.composition : [],
+    compositionPeriod: cofer ? cofer.period : null,
+    compositionSource: 'IMF COFER, world, share of allocated reserves',
+    reserveHolders: holders ? holders.slice(0, 50) : [],
+    holdersSource: 'World Bank, total reserves including gold (FI.RES.TOTL.CD)',
+    errors: Object.keys(errors).length ? errors : undefined,
     lastUpdated: new Date().toISOString(),
   };
-  setCache('macro:flows', data);
+  setCache('macro:flows', data, Object.keys(errors).length ? 5 * 60 * 1000 : 6 * 60 * 60 * 1000);
   return Response.json(data);
 }

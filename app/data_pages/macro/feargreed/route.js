@@ -1,178 +1,163 @@
 export const dynamic = 'force-dynamic';
 
+import YahooFinance from 'yahoo-finance2';
 import { getCached, setCache } from '../../_cache';
+import { withTimeout } from '../../_lib/http';
 
-function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
+// Fear & Greed, computed here from live market prices.
+//
+// Five gauges. Each is today's reading ranked against its own last 252
+// trading days: 0 means the most fearful reading of the past year, 100 the
+// greediest. The index is the plain average of the five ranks.
+//
+//   Market momentum    S&P 500 against its 125-day average
+//   Price strength     S&P 500 against its 52-week high
+//   Market volatility  VIX against its 50-day average (high = fear)
+//   Safe haven demand  20-day return of stocks (SPY) minus Treasuries (TLT)
+//   Junk bond demand   20-day return of high yield (HYG) minus investment grade (LQD)
+//
+// It is not CNN's index: CNN's data feed refuses automated clients, and two
+// of its seven inputs (breadth, put/call) need exchange data this app does
+// not have. The page labels it as the terminal's own composite.
 
-async function safeFetch(origin, path) {
-  try {
-    const r = await fetch(`${origin}${path}`, { cache: 'no-store' });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch (_) { return null; }
-}
+const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
+const DAY = 24 * 60 * 60 * 1000;
+const RANK_WINDOW = 252;
 
-// CNN's Fear & Greed dataviz API. Returns the official score + 7 sub-indicators.
-async function fetchCNN() {
-  try {
-    const r = await fetch('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-      cache: 'no-store',
-    });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch { return null; }
-}
+const SYMBOLS = ['^GSPC', '^VIX', 'SPY', 'TLT', 'HYG', 'LQD'];
 
-// Map CNN's lowercase rating words to display label + color (matches our bucket palette)
-function ratingMeta(rating) {
-  const r = (rating || '').toLowerCase();
-  if (r.includes('extreme fear'))  return { label: 'EXTREME FEAR',  color: '#ff3355' };
-  if (r === 'fear')                return { label: 'FEAR',          color: '#ff8833' };
-  if (r === 'neutral')             return { label: 'NEUTRAL',       color: '#ffc700' };
-  if (r === 'greed')               return { label: 'GREED',         color: '#00d4ff' };
-  if (r.includes('extreme greed')) return { label: 'EXTREME GREED', color: '#00f59b' };
-  return { label: r.toUpperCase() || 'NEUTRAL', color: '#ffc700' };
-}
-
-function bucketFromScore(score) {
-  if (score < 25)  return ratingMeta('extreme fear');
-  if (score < 45)  return ratingMeta('fear');
-  if (score < 55)  return ratingMeta('neutral');
-  if (score < 75)  return ratingMeta('greed');
-  return ratingMeta('extreme greed');
+async function closes(symbol) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - 1150 * DAY); // ~3 years of sessions
+  const res = await withTimeout(yahoo.chart(symbol, { period1, period2, interval: '1d' }), 9000, `Yahoo ${symbol}`);
+  const map = new Map();
+  for (const q of res?.quotes || []) {
+    if (q && q.date && q.close != null) map.set(new Date(q.date).toISOString().slice(0, 10), q.close);
+  }
+  return map;
 }
 
-// Pull a CNN sub-indicator block into our component shape.
-function cnnIndicator(name, block, descFn) {
-  if (!block || typeof block.score !== 'number') return null;
-  const meta = ratingMeta(block.rating);
-  return {
-    name,
-    score: +block.score.toFixed(1),
-    signal: meta.label,
-    desc: descFn ? descFn(block) : (block.rating || ''),
-    rating: block.rating,
-  };
+function sma(arr, i, n) {
+  if (i + 1 < n) return null;
+  let s = 0;
+  for (let k = i - n + 1; k <= i; k++) s += arr[k];
+  return s / n;
 }
 
-// ── Macro fallback scorers (used only when CNN is unreachable) ──────────────
-function scoreYieldCurve(spread) {
-  if (spread == null) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const score = clamp(50 + spread * 20, 5, 95);
-  return { score: +score.toFixed(1), signal: score > 60 ? 'GREED' : score < 40 ? 'FEAR' : 'NEUTRAL', desc: `10Y-2Y spread: ${spread > 0 ? '+' : ''}${spread.toFixed(2)}` };
-}
-function scoreRealRate(fed, cpiYoY) {
-  if (fed == null || cpiYoY == null) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const real = fed - cpiYoY;
-  const score = clamp(60 - real * 12, 5, 95);
-  return { score: +score.toFixed(1), signal: score > 60 ? 'GREED' : score < 40 ? 'FEAR' : 'NEUTRAL', desc: `Real rate: ${real >= 0 ? '+' : ''}${real.toFixed(2)}%` };
-}
-function scoreDxy(dxyChange) {
-  if (dxyChange == null) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const score = clamp(50 - dxyChange * 5, 5, 95);
-  return { score: +score.toFixed(1), signal: score > 60 ? 'GREED' : score < 40 ? 'FEAR' : 'NEUTRAL', desc: `DXY 24h: ${dxyChange >= 0 ? '+' : ''}${dxyChange.toFixed(2)}%` };
-}
-function scoreCommodityMomentum(commodities) {
-  if (!commodities || commodities.length === 0) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const oil = commodities.find((c) => c.symbol === 'CLUSD' || c.name?.includes('WTI'));
-  const copper = commodities.find((c) => c.symbol === 'HGUSD' || c.name === 'Copper');
-  const avg = ((oil?.changePct ?? 0) + (copper?.changePct ?? 0)) / 2;
-  const score = clamp(60 + avg * 4, 10, 90);
-  return { score: +score.toFixed(1), signal: score > 60 ? 'GREED' : score < 40 ? 'FEAR' : 'NEUTRAL', desc: `Oil+Cu avg 24h: ${avg >= 0 ? '+' : ''}${avg.toFixed(2)}%` };
-}
-function scoreYieldVol(currentYields, historicalYields) {
-  if (!currentYields || !historicalYields) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const cur10 = currentYields.find((p) => p.label === '10Y')?.yield;
-  const old10 = historicalYields['1y']?.find((p) => p.label === '10Y')?.yield;
-  if (cur10 == null || old10 == null) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const move = Math.abs(cur10 - old10);
-  const score = clamp(80 - move * 25, 10, 90);
-  return { score: +score.toFixed(1), signal: score > 60 ? 'GREED' : score < 40 ? 'FEAR' : 'NEUTRAL', desc: `10Y 1Y move: ${move.toFixed(2)}%` };
-}
-function scoreCBStance(banks) {
-  if (!banks || banks.length === 0) return { score: 50, signal: 'NEUTRAL', desc: 'no data' };
-  const cuts = banks.filter((b) => b.trend === 'cut').length;
-  const hikes = banks.filter((b) => b.trend === 'hike').length;
-  const total = banks.length;
-  const net = (cuts - hikes) / total;
-  const score = clamp(50 + net * 35, 15, 90);
-  return { score: +score.toFixed(1), signal: score > 60 ? 'GREED' : score < 40 ? 'FEAR' : 'NEUTRAL', desc: `${cuts} cutting · ${total - cuts - hikes} holding · ${hikes} hiking` };
+function rollingMax(arr, i, n) {
+  if (i + 1 < n) return null;
+  let m = -Infinity;
+  for (let k = i - n + 1; k <= i; k++) if (arr[k] > m) m = arr[k];
+  return m;
 }
 
-export async function GET(request) {
+function ret(arr, i, n) {
+  if (i < n || !(arr[i - n] > 0)) return null;
+  return arr[i] / arr[i - n] - 1;
+}
+
+// Rank of series[i] among the RANK_WINDOW readings that end at i, 0 to 100.
+// Ties count half, so a flat series sits at 50.
+function percentile(series, i) {
+  if (i + 1 < RANK_WINDOW) return null;
+  const x = series[i];
+  if (x == null) return null;
+  let below = 0, equal = 0, n = 0;
+  for (let k = i - RANK_WINDOW + 1; k <= i; k++) {
+    const v = series[k];
+    if (v == null) return null;
+    n++;
+    if (v < x) below++;
+    else if (v === x) equal++;
+  }
+  return ((below + 0.5 * equal) / n) * 100;
+}
+
+function meta(score) {
+  if (score < 25) return { label: 'EXTREME FEAR', color: '#ff3355' };
+  if (score < 45) return { label: 'FEAR', color: '#ff8833' };
+  if (score < 55) return { label: 'NEUTRAL', color: '#ffc700' };
+  if (score < 75) return { label: 'GREED', color: '#00d4ff' };
+  return { label: 'EXTREME GREED', color: '#00f59b' };
+}
+
+const pct = (x, d = 1) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(d)}%`;
+
+export async function GET() {
   const cached = getCached('macro:feargreed');
   if (cached) return Response.json(cached);
 
-  const url = new URL(request.url);
-  const origin = `${url.protocol}//${url.host}`;
-
-  const [cnnRaw, yields, fx, comm, banks] = await Promise.all([
-    fetchCNN(),
-    safeFetch(origin, '/data_pages/macro/yields'),
-    safeFetch(origin, '/data_pages/macro/fx'),
-    safeFetch(origin, '/data_pages/macro/commodities'),
-    safeFetch(origin, '/data_pages/macro/centralbanks'),
-  ]);
-
-  const cnnFG = cnnRaw?.fear_and_greed;
-  const useCNN = cnnFG && typeof cnnFG.score === 'number';
-
-  let score, label, color, source, components, cnnMeta;
-
-  if (useCNN) {
-    score = +cnnFG.score.toFixed(1);
-    const meta = ratingMeta(cnnFG.rating) || bucketFromScore(score);
-    label = meta.label;
-    color = meta.color;
-    source = 'CNN';
-    cnnMeta = {
-      previousClose: cnnFG.previous_close ?? null,
-      prev1w: cnnFG.previous_1_week?.score ?? null,
-      prev1m: cnnFG.previous_1_month?.score ?? null,
-      prev1y: cnnFG.previous_1_year?.score ?? null,
-    };
-    // CNN's 7 official sub-indicators
-    components = [
-      cnnIndicator('Market Momentum',    cnnRaw.market_momentum_sp125,   (b) => `S&P 500 vs 125-day MA · ${b.rating}`),
-      cnnIndicator('Stock Price Strength', cnnRaw.stock_price_strength,  (b) => `52-week highs vs lows · ${b.rating}`),
-      cnnIndicator('Stock Price Breadth',  cnnRaw.stock_price_breadth,   (b) => `McClellan Volume Summation · ${b.rating}`),
-      cnnIndicator('Put/Call Options',     cnnRaw.put_call_options,      (b) => `5-day put/call ratio · ${b.rating}`),
-      cnnIndicator('Market Volatility',    cnnRaw.market_volatility_vix, (b) => `VIX vs 50-day MA · ${b.rating}`),
-      cnnIndicator('Safe Haven Demand',    cnnRaw.safe_haven_demand,     (b) => `Stocks vs Treasuries 20d · ${b.rating}`),
-      cnnIndicator('Junk Bond Demand',     cnnRaw.junk_bond_demand,      (b) => `HY vs IG yield spread · ${b.rating}`),
-    ].filter(Boolean);
-  } else {
-    // Macro fallback when CNN is unreachable
-    const fed = yields?.fedFundsRate;
-    const cpiYoY = 2.9;
-    components = [
-      { name: 'Yield Curve',      ...scoreYieldCurve(yields?.spread_10_2) },
-      { name: 'Real Fed Rate',    ...scoreRealRate(fed, cpiYoY) },
-      { name: 'USD Momentum',     ...scoreDxy(fx?.dxyChange24h) },
-      { name: 'Commodity Mtm',    ...scoreCommodityMomentum(comm?.commodities) },
-      { name: 'Yield Volatility', ...scoreYieldVol(yields?.current, yields?.historical) },
-      { name: 'CB Policy Stance', ...scoreCBStance(banks?.banks) },
-    ];
-    const macroAvg = +(components.reduce((s, c) => s + c.score, 0) / components.length).toFixed(1);
-    score = macroAvg;
-    const meta = bucketFromScore(score);
-    label = meta.label;
-    color = meta.color;
-    source = 'macro';
-    cnnMeta = null;
+  let maps;
+  try {
+    maps = await Promise.all(SYMBOLS.map(closes));
+  } catch (e) {
+    return Response.json({ error: `Market data unavailable: ${e.message}` }, { status: 502 });
   }
+  const [mSpx, mVix, mSpy, mTlt, mHyg, mLqd] = maps;
 
-  const data = {
-    score,
-    label,
-    color,
-    source,
-    cnnMeta,
-    components,
-    lastUpdated: new Date().toISOString(),
+  // Sessions on which all six series have a close.
+  const dates = [...mSpx.keys()].filter((d) => maps.every((m) => m.has(d))).sort();
+  if (dates.length < RANK_WINDOW + 260) {
+    return Response.json({ error: `Not enough shared history (${dates.length} sessions)` }, { status: 502 });
+  }
+  const col = (m) => dates.map((d) => m.get(d));
+  const spx = col(mSpx), vix = col(mVix), spy = col(mSpy), tlt = col(mTlt), hyg = col(mHyg), lqd = col(mLqd);
+  const n = dates.length;
+
+  // Raw readings, oriented so that higher = greedier.
+  const raw = {
+    momentum: spx.map((v, i) => { const a = sma(spx, i, 125); return a ? v / a - 1 : null; }),
+    strength: spx.map((v, i) => { const m = rollingMax(spx, i, 252); return m ? v / m - 1 : null; }),
+    volatility: vix.map((v, i) => { const a = sma(vix, i, 50); return a ? -(v / a - 1) : null; }),
+    safeHaven: spy.map((_, i) => { const a = ret(spy, i, 20), b = ret(tlt, i, 20); return a != null && b != null ? a - b : null; }),
+    junk: hyg.map((_, i) => { const a = ret(hyg, i, 20), b = ret(lqd, i, 20); return a != null && b != null ? a - b : null; }),
+  };
+  const keys = Object.keys(raw);
+
+  const compositeAt = (i) => {
+    const ranks = keys.map((k) => percentile(raw[k], i));
+    if (ranks.some((r) => r == null)) return null;
+    return { ranks, score: ranks.reduce((s, r) => s + r, 0) / ranks.length };
   };
 
-  setCache('macro:feargreed', data);
+  const last = n - 1;
+  const now = compositeAt(last);
+  if (!now) return Response.json({ error: 'Could not rank the gauges' }, { status: 502 });
+
+  const descriptions = {
+    momentum: `S&P 500 is ${pct(raw.momentum[last])} against its 125-day average`,
+    strength: `S&P 500 is ${pct(raw.strength[last])} from its 52-week high`,
+    volatility: `VIX ${vix[last].toFixed(1)} is ${pct(-raw.volatility[last])} against its 50-day average`,
+    safeHaven: `Stocks minus Treasuries over 20 days: ${pct(raw.safeHaven[last])}`,
+    junk: `High yield minus investment grade over 20 days: ${pct(raw.junk[last], 2)}`,
+  };
+  const names = {
+    momentum: 'Market Momentum', strength: 'Price Strength', volatility: 'Market Volatility',
+    safeHaven: 'Safe Haven Demand', junk: 'Junk Bond Demand',
+  };
+  const components = keys.map((k, j) => ({
+    name: names[k],
+    score: +now.ranks[j].toFixed(1),
+    signal: meta(now.ranks[j]).label,
+    desc: descriptions[k],
+  }));
+
+  const back = (sessions) => {
+    const c = compositeAt(last - sessions);
+    return c ? +c.score.toFixed(1) : null;
+  };
+
+  const score = +now.score.toFixed(1);
+  const data = {
+    score,
+    ...meta(score),
+    source: 'market',
+    asOf: dates[last],
+    history: { previousClose: back(1), prev1w: back(5), prev1m: back(21), prev1y: back(252) },
+    components,
+    method: 'Average of five gauges, each ranked against its own last 252 trading days (0 = most fearful, 100 = greediest).',
+    lastUpdated: new Date().toISOString(),
+  };
+  setCache('macro:feargreed', data, 15 * 60 * 1000);
   return Response.json(data);
 }

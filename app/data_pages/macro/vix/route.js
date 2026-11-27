@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic';
 
 import YahooFinance from 'yahoo-finance2';
 import { getCached, setCache } from '../../_cache';
+import { withTimeout } from '../../_lib/http';
 
 const yahoo = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
 const ONE_HOUR = 60 * 60 * 1000;
 
 async function fetchSeries(symbol, period1, period2) {
-  const res = await yahoo.chart(symbol, { period1, period2, interval: '1d' });
+  const res = await withTimeout(yahoo.chart(symbol, { period1, period2, interval: '1d' }), 8000, `Yahoo ${symbol}`);
   const quotes = (res?.quotes || []).filter((q) => q && q.date && q.close != null);
   return quotes.map((q) => ({ d: new Date(q.date).toISOString().slice(0, 10), c: q.close }));
 }
@@ -50,16 +51,23 @@ export async function GET() {
     };
   });
 
+  // VIX prints overnight; VIX3M and VIX6M only during the cash session. So
+  // the newest VIX row often has no 3M/6M yet. The ratio and the regime are
+  // read from the latest session that has both legs, and that date is shown.
   const last = history[history.length - 1];
-  const ratio = last.ratio;
+  const both = [...history].reverse().find((h) => h.ratio != null) || null;
+  const last6 = [...history].reverse().find((h) => h.vix6m != null) || null;
+  const ratio = both ? both.ratio : null;
   const regime = ratio == null ? 'unknown' : (ratio < 1 ? 'contango' : 'backwardation');
 
   const result = {
     current: {
       VIX: last.vix,
-      VIX3M: last.vix3m,
-      VIX6M: last.vix6m,
+      vixAsOf: last.d,
+      VIX3M: both ? both.vix3m : null,
+      VIX6M: last6 ? last6.vix6m : null,
       ratio,
+      ratioAsOf: both ? both.d : null,
       regime,
     },
     history,

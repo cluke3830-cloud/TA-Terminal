@@ -1,5 +1,5 @@
 // CPU Monte Carlo pricers in pure JS — the "no acceleration" baseline that
-// makes the MI300X comparison meaningful. Runs in chunks via async yields so
+// makes the GPU comparison meaningful. Runs in chunks via async yields so
 // the UI can keep ticking the runtime counter and stay responsive.
 
 const TWO = 2;

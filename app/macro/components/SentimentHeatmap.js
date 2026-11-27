@@ -18,14 +18,14 @@ export default function SentimentHeatmap() {
   }, []);
 
   if (err) return <Err m={err} />;
-  if (!data) return <Load t="Scoring sector headlines on FinBERT…" />;
+  if (!data) return <Load t="Scoring sector headlines…" />;
 
   if (!data.sentimentAvailable) {
     return (
       <div className="loading" style={{ padding: 24, flexDirection: 'column', gap: 6 }}>
-        FinBERT offline · headlines fetched but unscored
+        Headlines fetched but not scored
         <span style={{ fontSize: 10, color: 'var(--ash)' }}>
-          Set MC_GPU_URL on a box running gpu-service with transformers installed.
+          The scoring step returned nothing for these headlines.
         </span>
       </div>
     );

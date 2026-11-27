@@ -256,7 +256,7 @@ export default function McWidget({ params: widgetParams }) {
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: gpuOffline ? 'not-allowed' : 'pointer', opacity: gpuOffline ? 0.4 : 1 }}>
           <input type="radio" name={`mc-engine-${symbol}`} checked={engine === 'gpu'} onChange={() => setEngine('gpu')} disabled={gpuOffline} />
-          <span style={{ color: engine === 'gpu' ? '#00f59b' : 'var(--ash)' }}>AMD MI300X{gpuOffline ? ' (offline)' : ''}</span>
+          <span style={{ color: engine === 'gpu' ? '#00f59b' : 'var(--ash)' }}>GPU server{gpuOffline ? ' (not connected)' : ''}</span>
         </label>
         <button className="mc-run" onClick={onRun} disabled={!!running} style={{ marginLeft: 'auto' }}>
           {running ? '▶ Running…' : '▶ Run'}
@@ -268,7 +268,7 @@ export default function McWidget({ params: widgetParams }) {
         <div className="mc-progress">
           <div className="mc-progress-bar"><div className="mc-progress-fill" style={{ width: `${(progress * 100).toFixed(1)}%` }} /></div>
           <div className="mc-progress-meta">
-            <span>{Math.round(progress * 100)}% · {running === 'cpu' ? 'CPU' : 'MI300X'}</span>
+            <span>{Math.round(progress * 100)}% · {running === 'cpu' ? 'CPU' : 'GPU'}</span>
             <span>{fmtMs(elapsed)}</span>
           </div>
         </div>
@@ -282,7 +282,7 @@ export default function McWidget({ params: widgetParams }) {
           <ResultCell label="Runtime" value={fmtMs(result.runtimeMs)} accent="#00d4ff" hint={fmtThroughput(result.pathsPerSec)} />
           {speedup != null && (
             <div style={{ gridColumn: '1 / -1', fontSize: 11, color: '#00f59b', padding: '4px 0' }}>
-              ⚡ MI300X is <b>{speedup.toFixed(1)}×</b> faster than CPU
+              ⚡ GPU is <b>{speedup.toFixed(1)}×</b> faster than CPU
             </div>
           )}
         </div>

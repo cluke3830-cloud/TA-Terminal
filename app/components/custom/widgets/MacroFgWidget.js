@@ -73,23 +73,17 @@ export default function MacroFgWidget() {
       <div className="fg-wrap">
         <div className="fg-gauge">
           <FearGreedGauge score={fg.score} label={fg.label} color={fg.color} />
-          {fg.source === 'CNN' && (
+          {fg.history && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', margin: '2px 0 8px', fontFamily: 'var(--mono)', fontSize: 9 }}>
-              <span style={{ background: 'rgba(0,212,255,0.1)', color: 'var(--neon-cyan)', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 4, padding: '2px 7px', fontWeight: 700, letterSpacing: '.5px' }}>CNN INDEX</span>
-              {fg.cnnMeta?.previousClose != null && <span style={{ color: 'var(--smoke)' }}>PREV {fg.cnnMeta.previousClose.toFixed(0)}</span>}
-              {fg.cnnMeta?.prev1w != null && <span style={{ color: 'var(--smoke)' }}>1W {fg.cnnMeta.prev1w.toFixed(0)}</span>}
-              {fg.cnnMeta?.prev1m != null && <span style={{ color: 'var(--smoke)' }}>1M {fg.cnnMeta.prev1m.toFixed(0)}</span>}
-              {fg.cnnMeta?.prev1y != null && <span style={{ color: 'var(--smoke)' }}>1Y {fg.cnnMeta.prev1y.toFixed(0)}</span>}
-            </div>
-          )}
-          {fg.source === 'macro' && (
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#ff8833', textAlign: 'center', margin: '2px 0 8px' }}>
-              CNN unavailable — macro composite
+              {fg.history.previousClose != null && <span style={{ color: 'var(--smoke)' }}>PREV {fg.history.previousClose.toFixed(0)}</span>}
+              {fg.history.prev1w != null && <span style={{ color: 'var(--smoke)' }}>1W {fg.history.prev1w.toFixed(0)}</span>}
+              {fg.history.prev1m != null && <span style={{ color: 'var(--smoke)' }}>1M {fg.history.prev1m.toFixed(0)}</span>}
+              {fg.history.prev1y != null && <span style={{ color: 'var(--smoke)' }}>1Y {fg.history.prev1y.toFixed(0)}</span>}
             </div>
           )}
         </div>
         <div className="fg-cmp">
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 8 }}>{fg.source === 'CNN' ? 'CNN Sub-Indicators' : 'Macro Sub-Indicators'}</div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--smoke)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 8 }}>Gauges · rank against the past year</div>
           {(fg.components || []).map((c) => {
             const barColor = c.score < 40 ? '#ff3355' : c.score > 60 ? '#00f59b' : '#ffc700';
             return (

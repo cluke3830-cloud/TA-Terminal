@@ -68,15 +68,15 @@ export default function SentimentRolling({ sym, plotlyReady }) {
     }, { responsive: true, displayModeBar: false });
   }, [series, plotlyReady, sym]);
 
-  if (loading) return <Load t={`Scoring ${sym} headlines on FinBERT…`} />;
+  if (loading) return <Load t={`Scoring ${sym} headlines…`} />;
   if (err) return <Err m={err} />;
   if (!data?.sentimentAvailable) {
     return (
       <div className="card-b">
         <div className="loading" style={{ padding: 24, flexDirection: 'column', gap: 6 }}>
-          FinBERT offline · headlines fetched but unscored
+          Headlines fetched but not scored
           <span style={{ fontSize: 10, color: 'var(--ash)' }}>
-            Set MC_GPU_URL on a box running gpu-service with transformers installed.
+            The scoring step returned nothing for these headlines.
           </span>
         </div>
       </div>
@@ -96,7 +96,7 @@ export default function SentimentRolling({ sym, plotlyReady }) {
           border: `1px solid ${data.sentimentSource === 'finbert' ? 'rgba(237,28,36,0.28)' : 'var(--border)'}`,
           padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 700, letterSpacing: '.7px'
         }}>
-          {data.sentimentSource === 'finbert' ? 'FINBERT · MI300X' : 'LEXICON FALLBACK'}
+          {data.sentimentSource === 'finbert' ? 'FINBERT' : 'LOUGHRAN-MCDONALD WORD LIST'}
         </span>
       </div>
       <div ref={ref} style={{ height: 280 }} />

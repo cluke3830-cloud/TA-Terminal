@@ -118,7 +118,7 @@ export default function NewsSentimentWidget({ params }) {
   const series = useMemo(() => buildSeries(data?.articles || []), [data]);
 
   if (err) return <div className="err">⚠ {err}</div>;
-  if (!data) return <div className="loading"><div className="spinner" />Scoring news on AMD MI300X…</div>;
+  if (!data) return <div className="loading"><div className="spinner" />Scoring headlines…</div>;
 
   const articles = data.articles || [];
   const scored = articles.filter((a) => a.sentiment);
@@ -138,7 +138,7 @@ export default function NewsSentimentWidget({ params }) {
           <span style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--cloud)', letterSpacing: '.6px' }}>{symbol}</span>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.6px' }}>· {scored.length} headlines · 7d/30d rolling</span>
         </div>
-        <span className="amd-badge">{usingFinBERT ? 'FinBERT · MI300X' : 'Lexicon Fallback'}</span>
+        <span className="amd-badge">{usingFinBERT ? 'FinBERT' : 'Word list'}</span>
       </div>
 
       <NetSentimentGauge score={netScore} source={data.sentimentSource} />
@@ -178,7 +178,7 @@ export default function NewsSentimentWidget({ params }) {
       </div>
 
       <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--fog)', letterSpacing: '.5px', textAlign: 'center', borderTop: '1px solid var(--carbon)', paddingTop: 6, marginTop: 2 }}>
-        {usingFinBERT ? 'Inference on AMD MI300X via gpu-service · ProsusAI/finbert' : 'GPU droplet offline — using Loughran-McDonald lexicon'}
+        {usingFinBERT ? 'ProsusAI/finbert on a self-hosted gpu-service' : 'Scored with the Loughran-McDonald financial word list'}
       </div>
     </div>
   );

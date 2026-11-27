@@ -36,7 +36,9 @@ async function fmpEarnings(symbol, key) {
     historyData = surprises.map((s) => ({ date: s.date, eps: s.actualEarningResult, epsEstimated: s.estimatedEarning }));
   }
   if (historyData.length === 0 && Array.isArray(income) && income.length > 0) {
-    historyData = income.slice(0, 5).map((s) => ({ date: s.date, eps: s.eps, epsEstimated: s.epsdiluted || s.eps }));
+    // Income statements carry reported EPS only. There is no analyst estimate
+    // in them, so the estimate stays empty instead of repeating the actual.
+    historyData = income.slice(0, 5).map((s) => ({ date: s.date, eps: s.eps, epsEstimated: null }));
   }
   if (!calendar && !income && historyData.length === 0) return null;
   return {

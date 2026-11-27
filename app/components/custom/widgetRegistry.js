@@ -46,6 +46,6 @@ export const WIDGET_META = {
   WATCHLIST:     { title: 'Watchlist',       needsSymbol: false, defaultSize: { w: 4, h: 2 } },
   ALERTS:        { title: 'Alerts',          needsSymbol: false, defaultSize: { w: 4, h: 2 } },
   SCREENER:      { title: 'Screener',        needsSymbol: false, defaultSize: { w: 12, h: 2 } },
-  NEWS_SENTIMENT:{ title: 'News Sentiment · FinBERT', needsSymbol: true, defaultSize: { w: 6, h: 3 } },
+  NEWS_SENTIMENT:{ title: 'News Sentiment', needsSymbol: true, defaultSize: { w: 6, h: 3 } },
   REGIME:        { title: 'Regime Intelligence',      needsSymbol: true, defaultSize: { w: 6, h: 3 } },
 };
