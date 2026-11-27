@@ -1,11 +1,13 @@
 {
-  "name": "quantum-stock-terminal",
-  "version": "2.0.0",
+  "name": "ta-terminal",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check:data": "node scripts/check-live-data.mjs",
+    "refresh:sp500": "node scripts/refresh-sp500.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",

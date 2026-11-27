@@ -1,0 +1,29 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: No typed-in interest rates
+        # The pricing code must read its rate from the live Treasury curve.
+        # This fails the build if a constant rate is written back in.
+        run: |
+          if grep -rnE "(const R = 0\.0|useState\(0\.04[0-9]*\)|rf = 0\.0[0-9]|: 0\.04;)" app --include='*.js'; then
+            echo "A fixed interest rate was found in the code above. Use app/data_pages/_lib/rates.js."; exit 1
+          fi
