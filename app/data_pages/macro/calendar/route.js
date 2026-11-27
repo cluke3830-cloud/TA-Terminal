@@ -1,10 +1,21 @@
-import { getCached, setCache } from '../../_cache';
+export const dynamic = 'force-dynamic';
 
-// Forex Factory's public JSON feed: free, no auth, no daily quota.
-// This is the same dataset professional FX traders rely on, with
-// High/Medium/Low impact ratings, forecast, previous, and actual values
-// once an event releases. We use it as primary, with FMP as enrichment
-// for the days where the feed doesn't yet have actuals.
+import { getCached, setCache } from '../../_cache';
+import { getText, fetchWithTimeout } from '../../_lib/http';
+
+// Two parts, with different costs.
+//
+//   Calendar   Forex Factory's public weekly file: free, no key. It lists this
+//              week's releases with impact, forecast and previous value. It
+//              does not carry the actual figure, and there is no file for next
+//              week until the weekend.
+//
+//   Surprise   Actual against forecast needs a feed that publishes actuals.
+//              That is Financial Modeling Prep's economic calendar, which is
+//              part of its paid plans. It switches on by itself when
+//              FMP_API_KEY belongs to a plan that includes it. Until then the
+//              response says surprise.available = false with the reason, and
+//              the surprise index is empty, not zero.
 
 const FF_THISWEEK = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
 
@@ -47,13 +58,9 @@ function deriveSurprise(actual, estimate) {
 }
 
 async function fetchFFEvents() {
-  const r = await fetch(FF_THISWEEK, {
-    cache: 'no-store',
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; QuantumTerminal/1.0)' },
-  });
-  if (!r.ok) throw new Error(`Forex Factory: ${r.status}`);
-  // FF responds 200 + HTML when rate-limited, so check content before parsing.
-  const text = await r.text();
+  // FF answers 200 with an HTML page when it is rate-limiting, so the body is
+  // checked before it is parsed.
+  const text = await getText(FF_THISWEEK, {}, 8000);
   if (!text.startsWith('[') && !text.startsWith('{')) {
     throw new Error('Forex Factory: rate-limited or non-JSON response');
   }
@@ -85,19 +92,27 @@ async function fetchFFEvents() {
     });
 }
 
+// Returns { events, reason }. reason says why there are none.
 async function fetchFMPEvents(KEY) {
-  if (!KEY) return [];
+  if (!KEY) return { events: [], reason: 'FMP_API_KEY is not set' };
   const today = new Date();
   const past = new Date(today); past.setDate(today.getDate() - 7);
   const future = new Date(today); future.setDate(today.getDate() + 21);
   const from = past.toISOString().slice(0, 10);
   const to = future.toISOString().slice(0, 10);
   try {
-    const r = await fetch(`https://financialmodelingprep.com/stable/economic-calendar?from=${from}&to=${to}&apikey=${KEY}`, { cache: 'no-store' });
-    if (!r.ok) return [];
+    const r = await fetchWithTimeout(`https://financialmodelingprep.com/stable/economic-calendar?from=${from}&to=${to}&apikey=${KEY}`, {}, 7000);
+    if (!r.ok) {
+      const paid = r.status === 402 || r.status === 403;
+      return { events: [], reason: paid
+        ? `Financial Modeling Prep refused the economic calendar (HTTP ${r.status}): the current plan does not include it`
+        : `Financial Modeling Prep answered HTTP ${r.status}` };
+    }
     const raw = await r.json();
-    if (!Array.isArray(raw) || (raw[0] && raw[0]['Error Message'])) return [];
-    return raw
+    if (!Array.isArray(raw) || (raw[0] && raw[0]['Error Message'])) {
+      return { events: [], reason: 'Financial Modeling Prep returned an error instead of a calendar (plan or key problem)' };
+    }
+    const events = raw
       .filter((e) => e.event && (e.impact === 'High' || e.impact === 'Medium'))
       .map((e) => {
         const actual = parseNum(e.actual);
@@ -111,16 +126,16 @@ async function fetchFMPEvents(KEY) {
           currency: cur,
           flag: CC_FLAG[cur] || '🌐',
           event: e.event,
-          actual,
-          estimate,
-          previous,
+          actual, estimate, previous,
           impact: e.impact,
-          surprisePct,
-          direction,
+          surprisePct, direction,
           unit: e.unit || '',
         };
       });
-  } catch (_) { return []; }
+    return { events, reason: events.length ? null : 'Financial Modeling Prep returned no medium or high impact events' };
+  } catch (e) {
+    return { events: [], reason: `Financial Modeling Prep did not answer (${e.message})` };
+  }
 }
 
 export async function GET() {
@@ -136,9 +151,10 @@ export async function GET() {
     events = [];
   }
 
-  // Enrich with FMP if quota allows. Each FMP event is keyed by (date+event)
-  // so we don't double-count events already in the FF feed.
-  const fmpEvents = await fetchFMPEvents(process.env.FMP_API_KEY);
+  // Add the paid feed when the key's plan allows it. Events are keyed by
+  // (hour + name) so one release is not listed twice.
+  const fmp = await fetchFMPEvents(process.env.FMP_API_KEY);
+  const fmpEvents = fmp.events;
   if (fmpEvents.length > 0) {
     const seen = new Set(events.map((e) => `${e.date.slice(0, 13)}|${e.event}`));
     for (const ev of fmpEvents) {
@@ -148,13 +164,20 @@ export async function GET() {
     if (events.length === fmpEvents.length) source = 'fmp';
     else source = 'forex-factory + fmp';
   }
+  const withSurprise = events.filter((e) => e.surprisePct != null).length;
+  const surprise = {
+    available: withSurprise > 0,
+    reason: withSurprise > 0 ? null
+      : `No feed with actual figures is connected. ${fmp.reason || ''}. The free calendar carries forecasts only.`.replace('. .', '.'),
+    howToEnable: 'Set FMP_API_KEY to a Financial Modeling Prep plan that includes the economic calendar. Nothing else needs to change.',
+  };
 
   if (events.length === 0) {
-    // Still return a valid empty response so the UI doesn't break.
-    // Negative-cache for 5 min so we don't hammer FF/FMP on every request.
     const empty = {
-      upcoming: [], recent: [], citiProxy: 0,
+      upcoming: [], recent: [], citiProxy: null,
       counts: { beat: 0, miss: 0, inline: 0 },
+      surprise,
+      upcomingNote: 'The calendar feed is not answering right now.',
       source: 'unavailable',
       lastUpdated: new Date().toISOString(),
     };
@@ -165,9 +188,10 @@ export async function GET() {
   events.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const recentUSD = events.filter((e) => e.currency === 'USD' && e.surprisePct != null).slice(0, 12);
+  // Empty when there is nothing to average. A zero here would read as "no surprise".
   const citiProxy = recentUSD.length > 0
     ? +(recentUSD.reduce((s, e) => s + Math.max(-50, Math.min(50, e.surprisePct)), 0) / recentUSD.length).toFixed(1)
-    : 0;
+    : null;
 
   const todayMs = new Date().setHours(0, 0, 0, 0);
   const upcoming = events
@@ -185,6 +209,9 @@ export async function GET() {
       miss: events.filter((e) => e.direction === 'miss').length,
       inline: events.filter((e) => e.direction === 'inline').length,
     },
+    surprise,
+    upcomingNote: upcoming.length ? null
+      : "No more medium or high impact releases this week. The free feed covers one week at a time; next week's list appears over the weekend.",
     source,
     lastUpdated: new Date().toISOString(),
   };

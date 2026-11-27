@@ -692,7 +692,7 @@ function MacroDashboardInner() {
 
           <section id="sec-cal" className="msec fi">
             <div className="msec-h">
-              <div className="msec-t"><span className="msec-t-num">03</span>Economic Calendar · Surprise Index</div>
+              <div className="msec-t"><span className="msec-t-num">03</span>Economic Calendar{calendar?.surprise?.available ? ' · Surprise Index' : ''}</div>
               <div className="wmap-tabs">
                 <button className={`mt ${calTab === 'upcoming' ? 'a' : ''}`} onClick={() => setCalTab('upcoming')}>Upcoming</button>
                 <button className={`mt ${calTab === 'recent' ? 'a' : ''}`} onClick={() => setCalTab('recent')} style={{ marginLeft: 6 }}>Recent Surprises</button>
@@ -719,11 +719,20 @@ function MacroDashboardInner() {
                       </div>
                     );
                   })()}
+                  {calendar.surprise?.available === false ? (
+                    <div className="ec-summary" style={{ display: 'block' }}>
+                      <div className="ec-summary-l">USD Surprise Index · unavailable</div>
+                      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--mist)', lineHeight: 1.6, marginTop: 6 }}>
+                        {calendar.surprise.reason}<br />
+                        <span style={{ color: 'var(--ash)' }}>{calendar.surprise.howToEnable}</span>
+                      </div>
+                    </div>
+                  ) : (
                   <div className="ec-summary">
                     <div>
                       <div className="ec-summary-l">USD Surprise Index (Citi-style proxy)</div>
                       <div className="ec-summary-v" style={{ color: calendar.citiProxy >= 0 ? '#00f59b' : '#ff3355' }}>
-                        {calendar.citiProxy >= 0 ? '+' : ''}{calendar.citiProxy}
+                        {calendar.citiProxy == null ? '—' : `${calendar.citiProxy >= 0 ? '+' : ''}${calendar.citiProxy}`}
                       </div>
                     </div>
                     <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--smoke)', textAlign: 'right' }}>
@@ -732,6 +741,7 @@ function MacroDashboardInner() {
                       <div>INLINE: <span style={{ color: 'var(--fog)' }}>{calendar.counts.inline}</span></div>
                     </div>
                   </div>
+                  )}
                   <div className="ec-filters">
                     <div className="ec-filter-row">
                       <span className="ec-filter-l">IMPACT</span>
@@ -747,7 +757,13 @@ function MacroDashboardInner() {
                     </div>
                   </div>
                   <div className="ec-list">
-                    {groupedEvents.length === 0 && <div className="loading" style={{ padding: 16 }}>No events match these filters.</div>}
+                    {groupedEvents.length === 0 && (
+                      <div className="loading" style={{ padding: 30, lineHeight: 1.6 }}>
+                        {calTab === 'recent' && calendar.surprise?.available === false
+                          ? 'Recent surprises need a feed with actual figures. See the note above.'
+                          : (calTab === 'upcoming' && calendar.upcomingNote) || 'No events match these filters.'}
+                      </div>
+                    )}
                     {groupedEvents.map(({ day, label, events }) => (
                       <div key={day}>
                         <div className="ec-day-h">

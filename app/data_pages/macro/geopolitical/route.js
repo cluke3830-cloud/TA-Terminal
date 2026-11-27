@@ -34,6 +34,7 @@ async function loadRisk() {
       estimate: +d.value.toFixed(2),
       score: +Math.min(10, Math.max(0, (2.5 - d.value) * 2)).toFixed(1),
       year: d.date,
+      factors: [], // read by page code from before 2.1; kept so an old open tab cannot crash
     }))
     .sort((a, b) => b.score - a.score);
   if (data.length === 0) throw new Error('World Bank: no governance rows');
