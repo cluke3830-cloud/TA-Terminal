@@ -14,7 +14,8 @@ import { getJson } from '../../_lib/http';
 //
 //   view=oil   US Energy Information Administration, international data:
 //              proved reserves of crude oil, billion barrels, latest year per
-//              country. Needs EIA_API_KEY.
+//              country. Needs EIA_API_KEY. The page shows this layer only
+//              when the EIA answers; there is no stored copy to fall back on.
 
 const HOUR = 60 * 60 * 1000;
 
@@ -51,9 +52,22 @@ async function loadRisk() {
 async function loadOil() {
   const hit = getCached('macro:geo:oil');
   if (hit) return hit;
+  // A failed call is remembered for 30 minutes so that every page view does
+  // not wait on a source that is not answering.
+  const failed = getCached('macro:geo:oil:failed');
+  if (failed) throw new Error(failed);
+  try {
+    return await fetchOil();
+  } catch (e) {
+    setCache('macro:geo:oil:failed', e.message || 'EIA request failed', 30 * 60 * 1000);
+    throw e;
+  }
+}
+
+async function fetchOil() {
   const key = process.env.EIA_API_KEY;
   if (!key) throw new Error('EIA_API_KEY not configured');
-  const startYear = new Date().getUTCFullYear() - 4;
+  const startYear = new Date().getUTCFullYear() - 3;
   const params = new URLSearchParams();
   params.set('api_key', key);
   params.set('frequency', 'annual');
@@ -65,7 +79,7 @@ async function loadOil() {
   params.set('sort[0][column]', 'period');
   params.set('sort[0][direction]', 'desc');
   params.set('offset', '0');
-  params.set('length', '5000');
+  params.set('length', '1500');
   const j = await getJson(`https://api.eia.gov/v2/international/data/?${params}`, {}, 9000);
   const rows = j?.response?.data;
   if (!Array.isArray(rows) || rows.length === 0) throw new Error('EIA: no reserve rows');

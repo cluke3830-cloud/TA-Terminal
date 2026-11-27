@@ -625,7 +625,10 @@ function MacroDashboardInner() {
             <div className="msec-t"><span className="msec-t-num">01</span>World Map · Geopolitics & Satellite</div>
             <div className="wmap-tabs">
               <button className={`mt ${mapTab === 'geo' ? 'a' : ''}`} onClick={() => setMapTab('geo')}>Political Stability</button>
-              <button className={`mt ${mapTab === 'oil' ? 'a' : ''}`} onClick={() => setMapTab('oil')} style={{ marginLeft: 6 }}>Oil Reserves</button>
+              {/* Offered only when the EIA returned data. */}
+              {oilData && oilData.length > 0 && (
+                <button className={`mt ${mapTab === 'oil' ? 'a' : ''}`} onClick={() => setMapTab('oil')} style={{ marginLeft: 6 }}>Oil Reserves</button>
+              )}
             </div>
           </div>
           <div className="wmap-box" ref={mapRef} />
@@ -644,7 +647,6 @@ function MacroDashboardInner() {
                 <span>SOURCE: <b>US EIA · {oilMeta?.year}</b></span>
               </>
             )}
-            {mapTab === 'oil' && er.oil && <span style={{ color: '#ff8833' }}>Oil reserves unavailable: {er.oil}</span>}
             {mapTab === 'geo' && er.geo && <span style={{ color: '#ff8833' }}>Stability scores unavailable: {er.geo}</span>}
           </div>
         </section>

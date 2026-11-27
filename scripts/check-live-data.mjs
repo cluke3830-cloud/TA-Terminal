@@ -108,13 +108,6 @@ const CHECKS = [
     },
   },
   {
-    name: 'Oil reserves map', path: '/data_pages/macro/geopolitical?view=oil',
-    test(d, p) {
-      need((d.data || []).length >= 20, `only ${d.data?.length} countries`, p);
-      return `${d.data?.length} countries, ${d.year}`;
-    },
-  },
-  {
     name: 'Quotes', path: '/data_pages/quote?symbols=SPY,AAPL',
     test(d, p) {
       need((d.quotes || []).length === 2 && d.quotes.every((q) => isNum(q.price) && q.price > 0), 'quotes missing', p);

@@ -33,7 +33,7 @@ is not filled in with an estimate.
 | Reserve currency shares | IMF COFER, latest quarter | no |
 | Reserve holders | World Bank | no |
 | Political stability map | World Bank Worldwide Governance Indicators (yearly) | no |
-| Oil reserves map | US Energy Information Administration | `EIA_API_KEY` |
+| Oil reserves map (shown only when the EIA answers) | US Energy Information Administration | `EIA_API_KEY` |
 | Currencies | European Central Bank fixings, through Frankfurter | no |
 | Commodities, VIX, quotes, price history | Yahoo Finance | no |
 | Stock bars and option quotes | Alpaca | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` |

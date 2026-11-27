@@ -173,7 +173,13 @@ export async function GET() {
       };
     });
 
-    const elec = EIA ? await eiaElectricity(EIA) : null; // has its own 6 s timeout
+    // The EIA call has its own 6 s timeout. A miss is remembered for 30
+    // minutes so the other 15 commodities are not held up on every request.
+    let elec = null;
+    if (EIA && !getCached('macro:eia:elec:failed')) {
+      elec = await eiaElectricity(EIA);
+      if (!elec) setCache('macro:eia:elec:failed', true, 30 * 60 * 1000);
+    }
     if (elec && elec.length > 0) {
       const stats = deriveStats(elec);
       commodities.push({
