@@ -127,7 +127,9 @@ function normBound(b) {
 
 // Public: build a 30-point efficient frontier and pick the optimal portfolio
 // for the requested objective.
-export function solveFrontier({ mu, Sigma, tickers, bounds, rf = 0.04, objective = 'max_sharpe', target = null }) {
+export function solveFrontier({ mu, Sigma, tickers, bounds, rf, objective = 'max_sharpe', target = null }) {
+  // rf has no default on purpose: the route passes today's Treasury yield.
+  if (typeof rf !== 'number' || !isFinite(rf)) return { error: 'risk-free rate (rf) is required' };
   const n = mu.length;
   // Add tiny ridge for numerical stability when assets are highly correlated.
   const ridge = 1e-6;

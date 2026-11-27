@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { runMCCpu, sampleVizPaths, vizQuantiles } from '../../../mc/lib/cpu';
+import { useRiskFree } from '../../../lib/useRiskFree';
 
 const OPTION_TYPES = [
   { id: 'asian',    label: 'Asian' },
@@ -45,7 +46,12 @@ export default function McWidget({ params: widgetParams }) {
   const [K, setK] = useState(initialK);
   const [days, setDays] = useState(30);
   const [sigma, setSigma] = useState(0.30);
-  const [r, setR] = useState(0.045);
+  // Filled once with today's 3-month Treasury yield; a typed rate is kept.
+  const [r, setR] = useState(null);
+  const rf = useRiskFree();
+  useEffect(() => {
+    if (rf.rate != null) setR((cur) => (cur == null ? rf.rate : cur));
+  }, [rf.rate]);
   const [barrier, setBarrier] = useState(null);
   const [paths, setPaths] = useState(1_000_000);
   const [steps, setSteps] = useState(252);
@@ -164,8 +170,11 @@ export default function McWidget({ params: widgetParams }) {
     if (S0 <= 0 || K <= 0 || sigma <= 0 || days <= 0 || steps <= 0 || paths < 1000) {
       setErrorMsg('Inputs look off — check stock price, strike, days, vol, and simulations.'); return;
     }
+    if (r == null || r === '' || isNaN(+r)) {
+      setErrorMsg('Risk-free rate is empty. Wait for the live Treasury yield, or type a rate.'); return;
+    }
     if (engine === 'cpu') runCpu(); else runGpu();
-  }, [engine, running, runCpu, runGpu, optionType, barrier, S0, K, sigma, days, steps, paths]);
+  }, [engine, running, runCpu, runGpu, optionType, barrier, S0, K, sigma, days, steps, paths, r]);
 
   const pickOptionType = useCallback((next) => {
     setOptionType(next);

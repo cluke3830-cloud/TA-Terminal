@@ -362,7 +362,7 @@ function FrontierSection({ plotlyReady }) {
     const fr = result.frontier;
     const opt = result.optimal;
     const tan = result.tangency;
-    const rf = result.rf ?? 0.04;
+    const rf = result.rf;
 
     // Capital Allocation Line: y = rf + sharpe * x. Extend slightly past the
     // tangency portfolio to show that you can lever up the tangent.
@@ -429,7 +429,7 @@ function FrontierSection({ plotlyReady }) {
       text: ['risk-free rate'], textposition: 'middle right',
       textfont: { size: 10, color: '#a0a0b4', family: 'Geist Mono' },
       marker: { size: 8, color: '#9955ff', symbol: 'circle', line: { color: '#fff', width: 1 } },
-      hovertemplate: `r_f = ${(rf * 100).toFixed(1)}%<extra></extra>`,
+      hovertemplate: `r_f = ${(rf * 100).toFixed(2)}%${result.rfAsOf ? ` (3M Treasury, ${result.rfAsOf})` : ''}<extra></extra>`,
     });
 
     window.Plotly.newPlot(chartRef.current, traces, {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
+import { useRiskFree, riskFreeHint } from '../lib/useRiskFree';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { runMCCpu, sampleVizPaths, vizQuantiles } from './lib/cpu';
 
@@ -76,7 +77,13 @@ function MCPricerInner() {
   const [K, setK] = useState(initialK);
   const [days, setDays] = useState(initialDays);
   const [sigma, setSigma] = useState(0.30);
-  const [r, setR] = useState(0.045);
+  // Starts empty and is filled with today's 3-month Treasury yield. It is
+  // only filled once, so a rate the user typed is never overwritten.
+  const [r, setR] = useState(null);
+  const rf = useRiskFree();
+  useEffect(() => {
+    if (rf.rate != null) setR((cur) => (cur == null ? rf.rate : cur));
+  }, [rf.rate]);
   const [barrier, setBarrier] = useState(null);
   const [paths, setPaths] = useState(initialPaths);
   const [steps, setSteps] = useState(252);
@@ -247,9 +254,13 @@ function MCPricerInner() {
       setErrorMsg('Inputs look off — make sure stock price, strike, days, vol, and simulations are all positive.');
       return;
     }
+    if (r == null || r === '' || isNaN(+r)) {
+      setErrorMsg('The risk-free rate is empty. Wait for the live Treasury yield to load, or type a rate.');
+      return;
+    }
     if (engine === 'cpu') runCpu();
     else runGpu();
-  }, [engine, running, runCpu, runGpu, optionType, barrier, S0, K, sigma, days, steps, paths]);
+  }, [engine, running, runCpu, runGpu, optionType, barrier, S0, K, sigma, days, steps, paths, r]);
 
   // Probe the GPU service once on mount so we can disable the radio gracefully
   // when the ROCm box isn't configured.
@@ -419,7 +430,7 @@ function MCPricerInner() {
             <Field label="Strike price" hint="Where the option pays off (vs current price)" value={K} onChange={setK} step={0.5} />
             <Field label="Days to expiry" hint="How long until the option expires" value={days} onChange={setDays} step={1} />
             <Field label="Volatility (annual)" hint="Expected % swing per year — typical equities 25–60%" value={sigma} onChange={setSigma} step={0.01} fmt="pct" />
-            <Field label="Risk-free rate" hint="Roughly the Treasury yield — 4–5% lately" value={r} onChange={setR} step={0.0025} fmt="pct" />
+            <Field label="Risk-free rate" hint={riskFreeHint(rf)} value={r} onChange={setR} step={0.0025} fmt="pct" />
             <Field
               label={optionType === 'barrier' ? 'Knock-out barrier' : 'Barrier (off)'}
               hint={optionType === 'barrier' ? 'Option becomes worthless if price crosses this level' : 'Only used for Barrier options'}
@@ -522,7 +533,7 @@ function MCPricerInner() {
 
 // ── Field ──────────────────────────────────────────────────────────────────
 function Field({ label, hint, value, onChange, step = 1, fmt = null, disabled = false }) {
-  const display = fmt === 'pct' ? `${(value * 100).toFixed(2)}%` : value;
+  const display = fmt === 'pct' ? (value == null || value === '' ? '—' : `${(value * 100).toFixed(2)}%`) : value;
   return (
     <label className={`mc-field ${disabled ? 'd' : ''}`} title={hint || ''}>
       <span className="mc-field-l">

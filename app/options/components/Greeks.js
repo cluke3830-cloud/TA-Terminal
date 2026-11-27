@@ -21,7 +21,7 @@ export default function Greeks({ data }) {
       .sort((a, b) => a.dte - b.dte || a.strike - b.strike);
   }, [data, typeFilter, expFilter]);
 
-  if (!data?.rows?.length) return <div className="loading" style={{ padding: 24 }}>No Greeks data — load options chain first</div>;
+  if (!data?.rows?.length) return <div className="loading" style={{ padding: 24 }}>{data?.msg || 'No Greeks data — load options chain first'}</div>;
 
   return (
     <div className="card-b">
@@ -38,7 +38,7 @@ export default function Greeks({ data }) {
           <option value="all">All expiries</option>
           {expiries.map((e) => <option key={e} value={e}>{e}</option>)}
         </select>
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ash)' }}>Spot ${data.spot?.toFixed(2)} · r {(data.r * 100).toFixed(1)}% · ATM rows highlighted</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ash)' }}>Spot ${data.spot?.toFixed(2)} · r {data.r != null ? `${(data.r * 100).toFixed(2)}%` : '—'} (3M Treasury{data.rAsOf ? `, ${data.rAsOf}` : ''}) · ATM rows highlighted · italic = interpolated</span>
       </div>
       <div style={{ maxHeight: 420, overflowY: 'auto' }}>
         <table className="dt">
@@ -59,7 +59,7 @@ export default function Greeks({ data }) {
             {filtered.map((r, i) => (
               <tr
                 key={`${r.exp}-${r.strike}-${r.type}-${i}`}
-                style={r.atm ? { background: 'rgba(0,212,255,0.08)', fontWeight: 600 } : (r.synthetic ? { fontStyle: 'italic', opacity: 0.7 } : {})}
+                style={r.atm ? { background: 'rgba(0,212,255,0.08)', fontWeight: 600 } : (r.interpolated ? { fontStyle: 'italic', opacity: 0.7 } : {})}
               >
                 <td>{r.exp}</td>
                 <td>{r.dte}</td>
